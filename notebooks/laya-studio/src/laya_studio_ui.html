@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Laya Studio</title>
+<style>
+:root{--bg:#f5f6f8;--panel:#fff;--text:#1b1f27;--muted:#6a7280;--line:#e3e6eb;--accent:#0f766e;--accent-2:#ccfbf1;--bad:#b42318;--bad-bg:#fee4e2;--ok:#067647;--ok-bg:#dcfae6;--warn:#b54708;--warn-bg:#fef0c7;--chip:#eef1f5;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1116;--panel:#161a21;--text:#e6e9ee;--muted:#98a1ad;--line:#262c36;--accent:#2dd4bf;--accent-2:#123a36;--bad:#f97066;--bad-bg:#3b1715;--ok:#47cd89;--ok-bg:#10301f;--warn:#fdb022;--warn-bg:#3a2a0b;--chip:#222833}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.bar{max-width:1180px;margin:0 auto;padding:10px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.brand{font-weight:700;font-size:16px;letter-spacing:.2px}.brand span{color:var(--accent)}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button{background:none;border:0;padding:7px 12px;border-radius:8px;color:var(--muted);font:inherit;font-weight:600;cursor:pointer}
+nav button.on{background:var(--accent-2);color:var(--accent)}
+#gpu{margin-left:auto;color:var(--muted);font-size:12px}
+main{max-width:1180px;margin:0 auto;padding:16px}
+section{display:none}section.on{display:block}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h2{margin:0 0 4px;font-size:15px}.card .sub{color:var(--muted);margin:0 0 12px;font-size:13px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:600}
+input,select,textarea{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0}
+textarea{width:100%;resize:vertical}
+select{max-width:100%;text-overflow:ellipsis}.q select{width:100%}
+textarea.code{font-family:var(--mono);font-size:12px}
+button.b{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:8px;padding:7px 12px;cursor:pointer;white-space:nowrap}
+button.b:hover{border-color:var(--accent)}
+button.p{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (prefers-color-scheme:dark){button.p{color:#062b27}}
+button.d{color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+a.b{display:inline-block;text-decoration:none;font-weight:600;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:7px 12px}
+.kpis{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 14px;min-width:120px}
+.kpi b{display:block;font-size:20px}.kpi span{color:var(--muted);font-size:12px}
+.qstat{margin:10px 0}.qstat .t{font-weight:600;font-size:13px;display:flex;gap:6px;align-items:center}
+.hb{display:grid;grid-template-columns:150px 1fr 48px;gap:8px;align-items:center;font-size:12px;margin:3px 0}
+.hb .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.track{background:var(--chip);border-radius:4px;height:10px;overflow:hidden}.fill{background:var(--accent);height:100%}
+.fill.low{background:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px}
+.chip{display:inline-block;background:var(--chip);border-radius:6px;padding:1px 7px;margin:1px 3px 1px 0;font-size:12px}
+.chip i{font-style:normal;color:var(--muted)}
+.badge{display:inline-block;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:600;background:var(--chip)}
+.badge.ok{background:var(--ok-bg);color:var(--ok)}.badge.bad{background:var(--bad-bg);color:var(--bad)}.badge.run{background:var(--accent-2);color:var(--accent)}.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.muted{color:var(--muted)}.small{font-size:12px}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;font:12px/1.45 var(--mono);max-height:340px;white-space:pre-wrap;word-break:break-word;margin:8px 0 0}
+.q{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
+.q .h{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.q .h b{font-size:13px}.q .ins{color:var(--muted);font-size:12px;margin:2px 0 8px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg label{padding:5px 12px;cursor:pointer;font-size:13px;border-right:1px solid var(--line)}
+.seg label:last-child{border-right:0}
+.seg input{display:none}.seg input:checked+span{color:var(--accent);font-weight:700}
+.prog{height:8px;background:var(--chip);border-radius:6px;overflow:hidden;margin:8px 0}
+.prog div{height:100%;background:var(--accent);transition:width .4s}
+.ans{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.ans .v{font-size:17px;font-weight:700;color:var(--accent)}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:9px 16px;border-radius:10px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;max-width:90vw}
+#toast.show{opacity:1}#toast.bad{background:var(--bad);color:#fff}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--text);max-width:min(860px,94vw);width:100%}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+details summary{cursor:pointer;font-weight:600}
+.empty{color:var(--muted);text-align:center;padding:24px}
+@media (max-width:640px){.hb{grid-template-columns:100px 1fr 40px}main{padding:10px}}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <div class="brand">Laya <span>Studio</span></div>
+  <nav id="nav">
+    <button data-t="dataset" class="on">Dataset</button>
+    <button data-t="label">Label</button>
+    <button data-t="train">Train</button>
+    <button data-t="test">Test</button>
+    <button data-t="models">Models</button>
+  </nav>
+  <div id="gpu"></div>
+</div></header>
+
+<main>
+<!-- ============================================================ DATASET -->
+<section id="t-dataset" class="on">
+  <div class="card">
+    <h2>Your dataset</h2>
+    <p class="sub">Each record is one document (bill, receipt, transaction, message) with the answers you labelled for it.</p>
+    <div class="kpis" id="kpis"></div>
+    <div id="qstats"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Upload</h2>
+      <p class="sub">JSONL in Laya format, or a CSV with a <code>text</code> column plus one column per question.</p>
+      <div class="row">
+        <input type="file" id="upFile" accept=".jsonl,.json,.csv,.txt">
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label class="f">CSV template<select id="csvTpl"></select></label>
+        <label class="f">Mode<select id="upMode"><option value="append">Append</option><option value="replace">Replace all</option></select></label>
+        <button class="b p" id="upBtn" style="align-self:flex-end">Upload</button>
+      </div>
+      <div id="upOut" class="small" style="margin-top:8px"></div>
+      <details style="margin-top:10px"><summary class="small">File formats</summary>
+        <p class="small muted">JSONL, one record per line:</p>
+        <pre id="jsonlEx"></pre>
+        <p class="small muted">CSV for the selected template (labels may be the option name, yes/no, or a level number):</p>
+        <pre id="csvEx"></pre>
+        <p class="small muted">Extra CSV columns (merchant, amount, date...) are passed to the model with the text. Cloudflare limits uploads to 100 MB; for bigger files attach them to the notebook as a Kaggle dataset and use the import list.</p>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>Import from Kaggle input</h2>
+      <p class="sub">Files attached to this notebook under /kaggle/input. Keeps your data safe between sessions.</p>
+      <button class="b" id="scanBtn">Scan /kaggle/input</button>
+      <div id="sources" class="small" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">Records</h2>
+      <div class="row">
+        <input id="recSearch" placeholder="Search..." style="width:180px">
+        <a class="b" href="/api/dataset/download">Download JSONL</a>
+        <button class="b d" id="clearBtn">Clear all</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto;margin-top:10px"><table>
+      <thead><tr><th>#</th><th>Document</th><th>Labels</th><th></th></tr></thead>
+      <tbody id="recRows"></tbody>
+    </table></div>
+    <div class="row" style="justify-content:flex-end;margin-top:10px">
+      <span id="recPage" class="muted small"></span>
+      <button class="b" id="prevBtn">Previous</button><button class="b" id="nextBtn">Next</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ LABEL -->
+<section id="t-label">
+  <div class="grid">
+    <div class="card">
+      <h2>Label a document</h2>
+      <p class="sub">Paste the text of a bill, receipt or transaction (OCR output works), answer the questions, save. Skip any question you're unsure about.</p>
+      <div class="row">
+        <label class="f">Template<select id="lTpl"></select></label>
+        <label class="f">Pre-fill with<select id="lModel"></select></label>
+        <button class="b" id="lPrefill" style="align-self:flex-end">Pre-fill answers</button>
+      </div>
+      <textarea id="lText" rows="12" style="margin-top:10px" placeholder="e.g.  Bhatbhateni Supermarket, Lalitpur ... Sub total 2,070.80  VAT 13% 269.20  Grand total 2,340.00  Paid: eSewa"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="b p" id="lSave">Save example</button>
+        <span class="muted small">Ctrl+Enter to save</span>
+        <span id="lCount" class="muted small" style="margin-left:auto"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Answers</h2>
+      <div id="lQs"></div>
+    </div>
+  </div>
+  <div class="card">
+    <details><summary>Edit question templates</summary>
+      <p class="sub" style="margin-top:8px">Types: <b>choice</b> (criteria = options with descriptions), <b>noul</b> (yes/no), <b>score</b> (criteria = ordered list of levels). Good descriptions help the model a lot.</p>
+      <textarea id="tplJson" class="code" rows="18"></textarea>
+      <div class="row" style="margin-top:8px"><button class="b p" id="tplSave">Save templates</button><button class="b" id="tplReset">Reset to defaults</button></div>
+    </details>
+  </div>
+</section>
+
+<!-- ============================================================ TRAIN -->
+<section id="t-train">
+  <div class="grid">
+    <div class="card">
+      <h2>Fine-tune</h2>
+      <p class="sub">Trains on the current dataset. Part of it is held back to measure accuracy before and after.</p>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+        <label class="f" style="grid-column:1/-1">Start from<select id="trBase"></select></label>
+        <label class="f">Run name<input id="trName" placeholder="auto"></label>
+        <label class="f">Epochs<input id="trEpochs" type="number" value="4" min="1" max="50"></label>
+        <label class="f">Validation %<input id="trVal" type="number" value="15" min="0" max="50"></label>
+        <label class="f">Micro batch<input id="trMb" type="number" value="8" min="1" max="64"></label>
+        <label class="f">Grad accumulation<input id="trGa" type="number" value="4" min="1" max="64"></label>
+        <label class="f">GPUs<select id="trGpus"></select></label>
+        <label class="f">LR encoder<input id="trLrE" value="2.5e-5"></label>
+        <label class="f">LR head<input id="trLrH" value="1e-4"></label>
+        <label class="f">Max tokens<input id="trMax" placeholder="model default"></label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="b p" id="trStart">Start training</button>
+        <button class="b d" id="trStop">Stop</button>
+      </div>
+      <p class="small muted" style="margin-bottom:0">Rough guide: a few hundred labelled documents per question is a good start. On 2×T4 the official recipe ran ~30k decisions × 4 epochs in 4–5 h; small datasets finish in minutes.</p>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><h2 style="margin:0">Progress</h2><span id="trBadge" class="badge">idle</span></div>
+      <p id="trMsg" class="sub" style="margin-top:6px"></p>
+      <div class="prog"><div id="trProg" style="width:0"></div></div>
+      <div class="kpis" id="trKpis"></div>
+      <div id="trHist"></div>
+      <pre id="trErr" style="display:none;color:var(--bad)"></pre>
+    </div>
+  </div>
+  <div class="card"><details id="logBox"><summary>Training log</summary><pre id="trLog" style="max-height:420px"></pre></details></div>
+</section>
+
+<!-- ============================================================ TEST -->
+<section id="t-test">
+  <div class="grid">
+    <div class="card">
+      <h2>Try a model</h2>
+      <div class="row">
+        <label class="f">Model<select id="tModel"></select></label>
+        <label class="f">Questions<select id="tTpl"></select></label>
+        <button class="b" id="tFromRun" style="align-self:flex-end">Use this run's questions</button>
+      </div>
+      <textarea id="tText" rows="9" style="margin-top:10px" placeholder="Paste a document (plain text or JSON)"></textarea>
+      <details style="margin-top:8px"><summary class="small">Questions (JSON, editable)</summary><textarea id="tQs" class="code" rows="12" style="margin-top:6px"></textarea></details>
+      <div class="row" style="margin-top:10px"><button class="b p" id="tRun">Run</button><span id="tInfo" class="muted small"></span></div>
+    </div>
+    <div class="card">
+      <h2>Answers</h2>
+      <div id="tOut"><div class="empty">Run a document to see the model's decisions and confidence.</div></div>
+      <details style="margin-top:8px"><summary class="small">Raw JSON</summary><pre id="tRaw"></pre></details>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ MODELS -->
+<section id="t-models">
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">Trained models</h2><button class="b" id="mRefresh">Refresh</button></div>
+    <p class="sub" style="margin-top:6px">Everything in /kaggle/working disappears when the Kaggle session ends. Download the zip or push to Hugging Face to keep a model.</p>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Run</th><th>Started from</th><th>Status</th><th>Data</th><th>Val accuracy</th><th></th></tr></thead>
+      <tbody id="mRows"></tbody>
+    </table></div>
+  </div>
+</section>
+</main>
+
+<dialog id="dlg"><div class="row" style="justify-content:space-between"><b id="dlgTitle"></b><button class="b" onclick="dlg.close()">Close</button></div><pre id="dlgBody" style="max-height:70vh"></pre></dialog>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let INFO = null, TAB = 'dataset', recOff = 0, RUNS = [];
+const PAGE = 50;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  let d = {};
+  try { d = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(d.error || (r.status + ' ' + r.statusText));
+  return d;
+}
+const post = (path, body) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+let toastT;
+function toast(msg, bad) {
+  const t = $('#toast'); t.textContent = msg; t.className = 'show' + (bad ? ' bad' : '');
+  clearTimeout(toastT); toastT = setTimeout(() => t.className = '', bad ? 6000 : 2500);
+}
+async function guard(fn) { try { await fn(); } catch (e) { toast(e.message, true); } }
+const pct = v => v == null ? '–' : (v * 100).toFixed(1) + '%';
+const fmtS = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + 'h ' : '') + m + 'm ' + String(x).padStart(2, '0') + 's'; };
+const shortBase = b => !b ? '' : b.includes('/runs/') ? 'run: ' + b.split('/runs/')[1].split('/')[0] : b.replace('convaiinnovations/', '');
+
+// ------------------------------------------------------------ tabs
+$('#nav').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  TAB = b.dataset.t;
+  document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === 't-' + TAB));
+  if (TAB === 'train') refreshTrain();
+  if (TAB === 'models' || TAB === 'test' || TAB === 'train') refreshRuns();
+  if (TAB === 'dataset') { loadInfo(); loadRecords(); }
+};
+
+// ------------------------------------------------------------ info
+function fillSelect(sel, items, keep) {
+  const old = sel.value;
+  sel.innerHTML = items.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+  if (keep && items.some(([v]) => v === old)) sel.value = old;
+}
+async function loadInfo() {
+  INFO = await api('/api/info');
+  const tpls = Object.entries(INFO.templates).map(([k, v]) => [k, v.title]);
+  ['#csvTpl', '#lTpl', '#tTpl'].forEach(s => fillSelect($(s), tpls, true));
+  const g = INFO.gpus;
+  $('#gpu').textContent = g.length ? g.map(x => `${x.name} ${Math.round(x.mem_used / 1024 * 10) / 10}/${Math.round(x.mem_total / 1024)} GB ${x.util}%`).join(' · ') : 'No GPU - enable a GPU accelerator to train';
+  fillSelect($('#trGpus'), g.length ? g.map((_, i) => [String(i + 1), String(i + 1)]).reverse() : [['0', 'CPU (very slow)']], true);
+  renderStats(INFO.stats);
+  $('#lCount').textContent = INFO.stats.records + ' records';
+  $('#csvEx').textContent = INFO.csv_examples[$('#csvTpl').value] || '';
+  $('#jsonlEx').textContent = '{"state": {"text": "Receipt ... Total Rs 2,340 incl. VAT, paid via eSewa"},\n "questions": {"doc_type": {"type": "choice", "instructions": "What kind of document is this?",\n                            "criteria": {"invoice": "...", "receipt": "...", "other": "..."}},\n               "vat_charged": {"type": "noul", "instructions": "Is VAT charged?"}},\n "gold": {"doc_type": "receipt", "vat_charged": true}}';
+  if (!$('#tplJson').dataset.dirty) $('#tplJson').value = JSON.stringify(INFO.templates, null, 2);
+  if (!$('#lQs').dataset.tpl) renderLabelQs();
+  if (!$('#tQs').value) setTestQs();
+}
+$('#csvTpl').onchange = () => { $('#csvEx').textContent = INFO.csv_examples[$('#csvTpl').value] || ''; };
+
+function renderStats(s) {
+  $('#kpis').innerHTML = `<div class="kpi"><b>${s.records}</b><span>documents</span></div><div class="kpi"><b>${s.decisions}</b><span>labelled answers</span></div><div class="kpi"><b>${Object.keys(s.questions).length}</b><span>questions</span></div>`;
+  const qs = Object.entries(s.questions);
+  if (!qs.length) { $('#qstats').innerHTML = '<div class="empty">No data yet. Upload a file or label documents in the Label tab.</div>'; return; }
+  $('#qstats').innerHTML = qs.map(([qid, d]) => {
+    const tot = Object.values(d.counts).reduce((a, b) => a + b, 0);
+    const rows = Object.entries(d.counts).sort((a, b) => b[1] - a[1]).map(([lab, n]) =>
+      `<div class="hb"><span class="n" title="${esc(lab)}">${esc(lab)}</span><div class="track"><div class="fill${n < 5 ? ' low' : ''}" style="width:${(n / tot * 100).toFixed(1)}%"></div></div><span>${n}</span></div>`).join('');
+    const few = Object.values(d.counts).some(n => n < 5);
+    return `<div class="qstat"><div class="t">${esc(qid)} <span class="badge">${esc(d.type)}</span>${few ? '<span class="badge warn">some labels have &lt;5 examples</span>' : ''}</div>${rows}</div>`;
+  }).join('');
+}
+
+// ------------------------------------------------------------ records
+async function loadRecords() {
+  const q = encodeURIComponent($('#recSearch').value.trim());
+  const d = await api(`/api/records?offset=${recOff}&limit=${PAGE}&q=${q}`);
+  $('#recRows').innerHTML = d.rows.length ? d.rows.map(r => `<tr><td class="muted">${r.index + 1}</td><td>${esc(r.preview)}</td><td>${Object.entries(r.labels).map(([k, v]) => `<span class="chip"><i>${esc(k)}:</i> ${esc(v)}</span>`).join('')}</td><td style="white-space:nowrap"><button class="b" data-view="${r.index}">View</button> <button class="b d" data-del="${r.index}">Delete</button></td></tr>`).join('') : '<tr><td colspan="4" class="empty">No records</td></tr>';
+  $('#recPage').textContent = d.total ? `${recOff + 1}–${Math.min(recOff + PAGE, d.total)} of ${d.total}` : '';
+  $('#prevBtn').disabled = recOff === 0; $('#nextBtn').disabled = recOff + PAGE >= d.total;
+}
+$('#recRows').onclick = e => guard(async () => {
+  const v = e.target.dataset.view, dl = e.target.dataset.del;
+  if (v !== undefined) { const r = await api('/api/record?index=' + v); $('#dlgTitle').textContent = 'Record ' + (+v + 1); $('#dlgBody').textContent = JSON.stringify(r, null, 2); $('#dlg').showModal(); }
+  if (dl !== undefined && confirm('Delete record ' + (+dl + 1) + '?')) { await post('/api/records/delete', {indices: [+dl]}); await loadRecords(); await loadInfo(); }
+});
+$('#prevBtn').onclick = () => { recOff = Math.max(0, recOff - PAGE); guard(loadRecords); };
+$('#nextBtn').onclick = () => { recOff += PAGE; guard(loadRecords); };
+let srchT; $('#recSearch').oninput = () => { clearTimeout(srchT); srchT = setTimeout(() => { recOff = 0; guard(loadRecords); }, 300); };
+$('#clearBtn').onclick = () => guard(async () => { if (!confirm('Delete ALL records? Download a copy first if you need it.')) return; await post('/api/records/clear'); recOff = 0; await loadInfo(); await loadRecords(); toast('Dataset cleared'); });
+
+function showImport(d) {
+  $('#upOut').innerHTML = `<span class="badge ${d.added ? 'ok' : 'bad'}">${d.added} added</span> ${d.total} total` + (d.error_count ? ` · <b style="color:var(--bad)">${d.error_count} skipped</b><pre>${esc(d.errors.join('\n'))}${d.error_count > d.errors.length ? '\n…' : ''}</pre>` : '');
+}
+$('#upBtn').onclick = () => guard(async () => {
+  const f = $('#upFile').files[0]; if (!f) throw new Error('Choose a file first');
+  if ($('#upMode').value === 'replace' && !confirm('Replace the whole dataset with this file?')) return;
+  const fmt = f.name.toLowerCase().endsWith('.csv') ? 'csv' : 'jsonl';
+  $('#upBtn').disabled = true;
+  try {
+    const d = await api(`/api/dataset/upload?format=${fmt}&template=${encodeURIComponent($('#csvTpl').value)}&mode=${$('#upMode').value}`, {method: 'POST', body: await f.text()});
+    showImport(d); await loadInfo(); recOff = 0; await loadRecords();
+  } finally { $('#upBtn').disabled = false; }
+});
+$('#scanBtn').onclick = () => guard(async () => {
+  const d = await api('/api/dataset/sources');
+  $('#sources').innerHTML = d.files.length ? `<table>${d.files.map(f => `<tr><td style="word-break:break-all">${esc(f.path)}</td><td class="muted">${(f.size / 1048576).toFixed(1)} MB</td><td><button class="b" data-imp="${esc(f.path)}">Import</button></td></tr>`).join('')}</table><p class="muted">CSV files use the CSV template and mode from the Upload card.</p>` : '<p class="muted">No .jsonl or .csv files found. Use "Add Input" in the Kaggle sidebar to attach a dataset.</p>';
+});
+$('#sources').onclick = e => guard(async () => {
+  const path = e.target.dataset.imp; if (!path) return;
+  const d = await post('/api/dataset/import', {path, template: $('#csvTpl').value, mode: $('#upMode').value});
+  showImport(d); await loadInfo(); recOff = 0; await loadRecords();
+});
+
+// ------------------------------------------------------------ label
+function qControl(qid, q, prefix) {
+  let c = '';
+  if (q.type === 'choice') c = `<select id="${prefix}${esc(qid)}"><option value="">— skip —</option>${Object.entries(q.criteria).map(([k, v]) => `<option value="${esc(k)}" title="${esc(v)}">${esc(k)}${v ? ' — ' + esc(v) : ''}</option>`).join('')}</select>`;
+  else if (q.type === 'score') c = `<select id="${prefix}${esc(qid)}"><option value="">— skip —</option>${q.criteria.map((v, i) => `<option value="${i}">${i}: ${esc(v)}</option>`).join('')}</select>`;
+  else c = `<div class="seg">${[['', 'skip'], ['true', 'yes'], ['false', 'no']].map(([v, l]) => `<label><input type="radio" name="${prefix}${esc(qid)}" value="${v}"${v === '' ? ' checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
+  return `<div class="q"><div class="h"><b>${esc(qid)}</b><span class="badge">${esc(q.type)}</span></div><div class="ins">${esc(q.instructions)}</div>${c}<div class="small muted" id="${prefix}hint-${esc(qid)}"></div></div>`;
+}
+function curLabelTpl() { return INFO.templates[$('#lTpl').value] || Object.values(INFO.templates)[0]; }
+function renderLabelQs() {
+  const t = curLabelTpl(); $('#lQs').dataset.tpl = $('#lTpl').value;
+  $('#lQs').innerHTML = Object.entries(t.questions).map(([qid, q]) => qControl(qid, q, 'lq-')).join('');
+}
+$('#lTpl').onchange = renderLabelQs;
+function readLabel(qid, q) {
+  if (q.type === 'noul') { const r = document.querySelector(`input[name="lq-${CSS.escape(qid)}"]:checked`); return r && r.value ? r.value === 'true' : null; }
+  const v = document.getElementById('lq-' + qid).value; if (v === '') return null;
+  return q.type === 'score' ? +v : v;
+}
+function stateFrom(text) {
+  const s = text.trim();
+  if (s.startsWith('{')) { try { return JSON.parse(s); } catch (e) {} }
+  return {text: text};
+}
+$('#lSave').onclick = () => guard(async () => {
+  const text = $('#lText').value; if (!text.trim()) throw new Error('Paste the document text first');
+  const t = curLabelTpl(), questions = {}, gold = {};
+  for (const [qid, q] of Object.entries(t.questions)) { const v = readLabel(qid, q); if (v !== null) { questions[qid] = q; gold[qid] = v; } }
+  if (!Object.keys(gold).length) throw new Error('Answer at least one question');
+  const d = await post('/api/records/add', {state: stateFrom(text), questions, gold});
+  $('#lText').value = ''; renderLabelQs(); $('#lText').focus();
+  $('#lCount').textContent = d.total + ' records'; toast('Saved · ' + d.total + ' records');
+});
+$('#lText').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('#lSave').click(); } };
+async function runPredict(model, state, questions, onWait) {
+  for (let i = 0; i < 200; i++) {
+    const d = await post('/api/predict', {model, state, questions});
+    if (!d.loading) return d;
+    onWait && onWait(i);
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  throw new Error('Model is taking too long to load');
+}
+$('#lPrefill').onclick = () => guard(async () => {
+  const text = $('#lText').value; if (!text.trim()) throw new Error('Paste the document text first');
+  const t = curLabelTpl(); $('#lPrefill').disabled = true;
+  try {
+    const d = await runPredict($('#lModel').value, text, t.questions, i => $('#lPrefill').textContent = 'Loading model' + '.'.repeat(i % 4));
+    for (const [qid, a] of Object.entries(d.result.answers)) {
+      const q = t.questions[qid]; if (!q) continue;
+      const hint = document.getElementById('lq-hint-' + qid);
+      if (q.type === 'noul') { const v = a.noul >= 0.5 ? 'true' : 'false'; const r = document.querySelector(`input[name="lq-${CSS.escape(qid)}"][value="${v}"]`); if (r) r.checked = true; hint.textContent = `model: P(yes)=${a.noul}`; }
+      else if (q.type === 'choice') { document.getElementById('lq-' + qid).value = a.choice; hint.textContent = `model: ${a.choice} (${pct(a.confidence)} confident)`; }
+      else { const probs = a.probabilities || {}; let best = Math.round(a.score); let bp = -1; for (const [k, v] of Object.entries(probs)) if (v > bp) { bp = v; best = +k; } document.getElementById('lq-' + qid).value = String(best); hint.textContent = `model: level ${best} (expected ${a.score})`; }
+    }
+    toast('Pre-filled - check each answer before saving');
+  } finally { $('#lPrefill').disabled = false; $('#lPrefill').textContent = 'Pre-fill answers'; }
+});
+$('#tplJson').oninput = () => $('#tplJson').dataset.dirty = '1';
+$('#tplSave').onclick = () => guard(async () => {
+  let t; try { t = JSON.parse($('#tplJson').value); } catch (e) { throw new Error('Invalid JSON: ' + e.message); }
+  const d = await post('/api/templates', t); delete $('#tplJson').dataset.dirty;
+  $('#tplJson').value = JSON.stringify(d.templates, null, 2); await loadInfo(); renderLabelQs(); setTestQs(); toast('Templates saved');
+});
+$('#tplReset').onclick = () => guard(async () => { if (!confirm('Reset templates to the built-in ones?')) return; await post('/api/templates/reset'); delete $('#tplJson').dataset.dirty; $('#tplJson').value = ''; await loadInfo(); $('#tplJson').value = JSON.stringify(INFO.templates, null, 2); renderLabelQs(); setTestQs(); });
+
+// ------------------------------------------------------------ runs / model selects
+async function refreshRuns() {
+  const d = await api('/api/runs'); RUNS = d.runs;
+  const bases = INFO ? INFO.base_models.map(b => [b.id, b.label]) : [];
+  const runModels = RUNS.filter(r => r.has_model).map(r => ['run:' + r.name, 'Fine-tuned: ' + r.name]);
+  fillSelect($('#trBase'), bases.concat(runModels.map(([v, l]) => [v, 'Continue from ' + l.slice(12)])), true);
+  fillSelect($('#tModel'), runModels.concat(bases), true);
+  fillSelect($('#lModel'), runModels.concat(bases), true);
+  renderRuns();
+}
+function renderRuns() {
+  $('#mRows').innerHTML = RUNS.length ? RUNS.map(r => {
+    const m = r.metrics || {};
+    const acc = m.final ? `${pct(m.baseline && m.baseline.accuracy)} → <b>${pct(m.final.accuracy)}</b>` : '–';
+    const badge = {done: 'ok', error: 'bad', running: 'run', stopped: 'warn'}[r.phase] || '';
+    const push = r.push ? `<div class="small ${r.push.state === 'error' ? '' : 'muted'}" style="${r.push.state === 'error' ? 'color:var(--bad)' : ''}">${esc(r.push.message)}</div>` : '';
+    return `<tr><td><b>${esc(r.name)}</b><div class="small muted">${new Date(r.created * 1000).toLocaleString()}</div></td><td>${esc(shortBase(r.base))}</td><td><span class="badge ${badge}">${esc(r.phase)}</span></td><td class="small">${m.records ? `${m.train_records} train / ${m.val_records} val docs` : ''}</td><td>${acc}</td><td style="white-space:nowrap">${r.has_model ? `<button class="b" data-test="${esc(r.name)}">Test</button> <a class="b" href="/api/runs/${encodeURIComponent(r.name)}/download">Download</a> <button class="b" data-push="${esc(r.name)}">Push to HF</button> ` : ''}<button class="b" data-info="${esc(r.name)}">Details</button> <button class="b d" data-rm="${esc(r.name)}">Delete</button>${push}</td></tr>`;
+  }).join('') : '<tr><td colspan="6" class="empty">No runs yet</td></tr>';
+}
+$('#mRows').onclick = e => guard(async () => {
+  const ds = e.target.dataset;
+  if (ds.test) { $('#tModel').value = 'run:' + ds.test; document.querySelector('#nav [data-t="test"]').click(); await loadRunQs(); }
+  if (ds.info) { const r = RUNS.find(x => x.name === ds.info); $('#dlgTitle').textContent = ds.info; $('#dlgBody').textContent = JSON.stringify(r.metrics || r, null, 2); $('#dlg').showModal(); }
+  if (ds.push) {
+    if (!INFO.hf) throw new Error('Add an HF_TOKEN secret in Kaggle (Add-ons → Secrets) and re-run the server cell');
+    const repo = prompt('Hugging Face repo id (username/model-name). It will be created as private.', 'your-username/laya-' + ds.push);
+    if (!repo) return; await post(`/api/runs/${encodeURIComponent(ds.push)}/push`, {repo_id: repo, private: true}); await refreshRuns();
+    const poll = setInterval(async () => { await refreshRuns(); const r = RUNS.find(x => x.name === ds.push); if (!r || !r.push || r.push.state !== 'uploading') clearInterval(poll); }, 4000);
+  }
+  if (ds.rm && confirm(`Delete run ${ds.rm} and its model?`)) { await post(`/api/runs/${encodeURIComponent(ds.rm)}/delete`); await refreshRuns(); }
+});
+$('#mRefresh').onclick = () => guard(refreshRuns);
+
+// ------------------------------------------------------------ train
+$('#trStart').onclick = () => guard(async () => {
+  const body = {base: $('#trBase').value, name: $('#trName').value.trim(), epochs: $('#trEpochs').value, val_frac: (+$('#trVal').value || 0) / 100,
+    micro_batch: $('#trMb').value, grad_accum: $('#trGa').value, gpus: $('#trGpus').value, lr_encoder: $('#trLrE').value, lr_head: $('#trLrH').value, max_len: $('#trMax').value};
+  const d = await post('/api/train/start', body);
+  toast(`Started ${d.run} on ${d.gpus || 'CPU'} ${d.gpus ? 'GPU(s)' : ''}`); $('#trName').value = '';
+  await refreshTrain(); refreshRuns();
+});
+$('#trStop').onclick = () => guard(async () => { if (!confirm('Stop training? Progress is lost.')) return; await post('/api/train/stop'); await refreshTrain(); });
+let lastState = null;
+async function refreshTrain() {
+  const s = await api('/api/train/status');
+  const state = s.state;
+  const badge = {running: 'run', done: 'ok', error: 'bad', stopped: 'warn'}[state] || '';
+  $('#trBadge').className = 'badge ' + badge;
+  $('#trBadge').textContent = state === 'running' ? (s.phase || 'running').replace('_', ' ') : state;
+  $('#trStart').disabled = state === 'running'; $('#trStop').disabled = state !== 'running';
+  $('#trMsg').textContent = s.run ? `${s.run} · ${s.message || ''}` : 'No training started yet.';
+  const frac = s.total_steps ? s.step / s.total_steps : (state === 'done' ? 1 : 0);
+  $('#trProg').style.width = (frac * 100).toFixed(1) + '%';
+  const k = [];
+  if (s.epochs) k.push([`${s.epoch || 0}/${s.epochs}`, 'epoch']);
+  if (s.total_steps) k.push([`${s.step || 0}/${s.total_steps}`, 'steps']);
+  if (s.loss != null) k.push([s.loss, 'loss']);
+  if (state === 'running' && s.eta_s) k.push([fmtS(s.eta_s), 'remaining']);
+  if (s.started) k.push([fmtS(((state === 'running' ? Date.now() / 1000 : s.updated) || s.started) - s.started), 'elapsed']);
+  $('#trKpis').innerHTML = k.map(([v, l]) => `<div class="kpi"><b>${esc(v)}</b><span>${l}</span></div>`).join('');
+  let h = '';
+  const base = s.baseline || (s.metrics && s.metrics.baseline), hist = s.history || [];
+  if (base || hist.length) {
+    h += '<table><thead><tr><th>Checkpoint</th><th>Train loss</th><th>Val accuracy</th></tr></thead><tbody>';
+    if (base) h += `<tr><td>Before training</td><td>–</td><td>${pct(base.accuracy)}</td></tr>`;
+    h += hist.map(e => `<tr><td>Epoch ${e.epoch}</td><td>${e.train_loss}</td><td>${pct(e.val_accuracy)}</td></tr>`).join('') + '</tbody></table>';
+  }
+  const m = s.metrics;
+  if (m && m.final) {
+    h += '<p class="small" style="margin:12px 0 4px"><b>Per question (validation)</b></p><table><thead><tr><th>Question</th><th>Before</th><th>After</th><th>n</th></tr></thead><tbody>' +
+      Object.entries(m.final.per_question).map(([q, v]) => `<tr><td>${esc(q)}</td><td>${pct(m.baseline && m.baseline.per_question[q] && m.baseline.per_question[q].accuracy)}</td><td><b>${pct(v.accuracy)}</b></td><td>${v.n}</td></tr>`).join('') + '</tbody></table>';
+  }
+  if (m && !m.final && state === 'done') h += '<p class="small muted">No validation split, so no accuracy was measured. Try the model in the Test tab.</p>';
+  if (m && m.smoke_test && m.smoke_test.error) h += `<p class="small" style="color:var(--bad)">Saved model failed to load: ${esc(m.smoke_test.error)}</p>`;
+  $('#trHist').innerHTML = h;
+  $('#trErr').style.display = s.error ? 'block' : 'none'; $('#trErr').textContent = s.error || '';
+  const lg = $('#trLog'); const atEnd = lg.scrollTop + lg.clientHeight >= lg.scrollHeight - 30;
+  lg.textContent = s.log || ''; if (atEnd) lg.scrollTop = lg.scrollHeight;
+  if (lastState === 'running' && state !== 'running') { refreshRuns(); toast('Training ' + state, state !== 'done'); }
+  lastState = state;
+  return s;
+}
+
+// ------------------------------------------------------------ test
+function setTestQs() { const t = INFO && INFO.templates[$('#tTpl').value]; if (t) $('#tQs').value = JSON.stringify(t.questions, null, 2); }
+$('#tTpl').onchange = setTestQs;
+async function loadRunQs() {
+  const v = $('#tModel').value; if (!v.startsWith('run:')) throw new Error('Pick a fine-tuned run first');
+  const q = await api(`/api/runs/${encodeURIComponent(v.slice(4))}/questions`);
+  if (!Object.keys(q).length) throw new Error('This run has no saved questions');
+  $('#tQs').value = JSON.stringify(q, null, 2); toast('Loaded the questions this model was trained on');
+}
+$('#tFromRun').onclick = () => guard(loadRunQs);
+function bars(entries, top) {
+  return entries.map(([k, v]) => `<div class="hb"><span class="n" title="${esc(k)}">${k === top ? '<b>' + esc(k) + '</b>' : esc(k)}</span><div class="track"><div class="fill" style="width:${(v * 100).toFixed(1)}%"></div></div><span>${(v * 100).toFixed(0)}%</span></div>`).join('');
+}
+$('#tRun').onclick = () => guard(async () => {
+  const text = $('#tText').value; if (!text.trim()) throw new Error('Paste a document first');
+  let qs; try { qs = JSON.parse($('#tQs').value); } catch (e) { throw new Error('Questions JSON is invalid: ' + e.message); }
+  $('#tRun').disabled = true; $('#tInfo').textContent = '';
+  try {
+    const d = await runPredict($('#tModel').value, text, qs, i => $('#tInfo').textContent = 'Loading model (the first load downloads ~1 GB)' + '.'.repeat(i % 4));
+    $('#tInfo').textContent = `${d.ms} ms`;
+    $('#tRaw').textContent = JSON.stringify(d.result, null, 2);
+    $('#tOut').innerHTML = Object.entries(d.result.answers).map(([qid, a]) => {
+      const q = d.questions[qid] || {};
+      let head = '', body = '';
+      if (q.type === 'choice') { head = a.choice; body = bars(Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]), a.choice); }
+      else if (q.type === 'noul') { head = a.noul >= 0.5 ? 'yes' : 'no'; body = bars([['yes', a.noul], ['no', 1 - a.noul]], head); }
+      else { head = 'level ' + a.score; body = bars(Object.entries(a.probabilities).map(([k, v]) => [k + ': ' + String((q.criteria || [])[+k] || '').split(':')[0], v]), null); }
+      return `<div class="q"><div class="h"><b>${esc(qid)}</b><span class="badge">${esc(q.type)}</span></div><div class="ins">${esc(q.instructions)}</div><div class="ans"><span class="v">${esc(head)}</span><span class="muted small">confidence ${pct(a.confidence)}</span></div>${body}</div>`;
+    }).join('');
+  } finally { $('#tRun').disabled = false; }
+});
+
+// ------------------------------------------------------------ boot
+guard(async () => { await loadInfo(); await loadRecords(); await refreshRuns(); await refreshTrain(); });
+setInterval(() => { if (TAB === 'train' || lastState === 'running') guard(refreshTrain); }, 3000);
+setInterval(() => { if (TAB === 'train') guard(async () => { const d = await api('/api/info'); INFO.gpus = d.gpus; $('#gpu').textContent = d.gpus.map(x => `${x.name} ${Math.round(x.mem_used / 1024 * 10) / 10}/${Math.round(x.mem_total / 1024)} GB ${x.util}%`).join(' · ') || $('#gpu').textContent; }); }, 15000);
+</script>
+</body>
+</html>
