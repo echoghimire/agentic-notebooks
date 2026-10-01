@@ -6,16 +6,16 @@ Each notebook is self-contained: it installs what it needs, starts its app in th
 
 By Er. Gunjan Ghimire.
 
-| Notebook | What it runs | Accelerator |
-|---|---|---|
-| [`notebooks/ollama-chat`](notebooks/ollama-chat) | Ollama (`llama3.2`) with a lightweight streaming chat UI | None (CPU) or GPU |
-| [`notebooks/laya-studio`](notebooks/laya-studio) | **Laya Studio for Data**: label bills, receipts and fintech text; fine-tune [Laya](https://github.com/NandhaKishorM/laya) on it; test the result | GPU T4 x2 |
+| Notebook | What it runs | Accelerator | Run |
+|---|---|---|---|
+| [`notebooks/ollama-chat`](notebooks/ollama-chat) | Ollama (`llama3.2`) with a lightweight streaming chat UI | None (CPU) or GPU | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/ollama-chat/ollama-chat.ipynb) |
+| [`notebooks/laya-studio`](notebooks/laya-studio) | **Laya Studio for Data**: label bills, receipts and fintech text; fine-tune [Laya](https://github.com/NandhaKishorM/laya) on it; test the result | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/laya-studio/laya-studio.ipynb) |
 
 ## Quick start
 
 1. **Create a Cloudflare Tunnel** (Cloudflare dashboard → Zero Trust → Networks → Tunnels). Add a public hostname on your own domain pointing to `http://localhost:7860`. Copy the tunnel token.
    Use a separate tunnel for each notebook you run at the same time; two notebooks on one tunnel will split traffic between them.
-2. **Upload the notebook** to Kaggle (Create → New Notebook → File → Import Notebook).
+2. **Open the notebook in Kaggle** with its "Open in Kaggle" button above (or Create → New Notebook → File → Import Notebook).
 3. **Add the tunnel token as a Kaggle secret** (Add-ons → Secrets) under the name the notebook's first cell asks for, and attach it to the notebook.
 4. **Settings:** Internet on; pick the accelerator from the table above.
 5. **Run All**, then open your hostname.
