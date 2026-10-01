@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>B-roll · OpenShorts Studio</title>
+<style>
+:root{--bg:#f6f6f4;--panel:#fff;--text:#18181b;--muted:#6b6b73;--line:#e4e4e0;--accent:#e4572e;--accent-ink:#fff;--chip:#efefec;--ok:#15803d;--bad:#b91c1c}
+@media (prefers-color-scheme:dark){:root{--bg:#111113;--panel:#1a1a1d;--text:#ececef;--muted:#9a9aa3;--line:#2a2a2f;--accent:#ff7a50;--accent-ink:#1a0c06;--chip:#25252a;--ok:#4ade80;--bad:#f87171}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:2}
+header b{font-size:17px}header b span{color:var(--accent)}
+header a{color:var(--muted);text-decoration:none;font-size:14px;margin-left:auto}
+main{max-width:1200px;margin:0 auto;padding:18px 20px;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px}
+@media (max-width:860px){main{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+h2{font-size:15px;margin:0 0 10px}
+.muted{color:var(--muted)}.small{font-size:13px}
+.clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;max-height:62vh;overflow:auto;padding:2px}
+.clip{border:2px solid transparent;border-radius:12px;background:var(--chip);padding:6px;cursor:pointer;text-align:left;color:inherit;font:inherit}
+.clip.on{border-color:var(--accent)}
+.clip video{width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:8px;background:#000;display:block}
+.clip .n{font-size:12px;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clip .tag{font-size:11px;color:var(--ok);font-weight:600}
+label{display:block;font-size:13px;color:var(--muted);font-weight:600;margin:12px 0 5px}
+input,select{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row>div{flex:1;min-width:120px}
+.row>.btns{flex:0 0 auto;min-width:0}
+button.go{margin-top:14px;width:100%;font:inherit;font-weight:700;border:0;border-radius:10px;padding:12px;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+button.go:disabled{opacity:.5;cursor:default}
+button.sec{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:8px;padding:6px 10px;cursor:pointer}
+.bar{height:8px;background:var(--chip);border-radius:6px;overflow:hidden;margin:8px 0}
+.bar div{height:100%;background:var(--accent);width:0;transition:width .4s}
+.ins{display:grid;grid-template-columns:72px 1fr;gap:10px;align-items:start;margin:10px 0}
+.ins img,.ins .ph{width:72px;aspect-ratio:9/16;object-fit:cover;border-radius:6px;background:var(--chip)}
+.ins b{font-variant-numeric:tabular-nums}
+video.result{width:100%;max-height:70vh;border-radius:10px;background:#000;margin-top:10px}
+.err{color:var(--bad);white-space:pre-wrap;font-size:13px}
+.empty{color:var(--muted);text-align:center;padding:30px 10px}
+a.btn{display:inline-block;margin-top:8px;color:var(--accent);font-weight:600}
+</style>
+</head>
+<body>
+<header><b>OpenShorts <span>B-roll</span></b><span class="muted small" id="models"></span><a href="/">← Back to clips</a></header>
+<main>
+  <section class="card">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">1. Pick a clip</h2>
+      <div class="row btns"><button class="sec" id="refresh">Refresh</button><button class="sec" id="upBtn">Upload mp4</button><input type="file" id="upFile" accept="video/mp4" hidden></div></div>
+    <p class="muted small">Clips OpenShorts has made in this session. Uploads up to 100 MB.</p>
+    <div class="clips" id="clips"><div class="empty">No clips yet. Make some on the main page first.</div></div>
+  </section>
+
+  <section class="card">
+    <h2>2. Add b-roll</h2>
+    <div class="muted small" id="picked">No clip selected.</div>
+    <div class="row">
+      <div><label for="count">Inserts</label><select id="count"><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
+      <div><label for="mode">Placement</label><select id="mode"><option value="upper" selected>Top 60% (captions stay visible)</option><option value="full">Full screen</option></select></div>
+    </div>
+    <label for="style">Visual style (optional)</label>
+    <input id="style" placeholder="e.g. warm film photo, Kathmandu streets, 35mm">
+    <button class="go" id="go" disabled>Add b-roll</button>
+    <div id="job"></div>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let picked = null, poll = null;
+async function api(p, o) { const r = await fetch(p, o); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || r.status); return d; }
+
+async function loadClips() {
+  const d = await api('api/clips');
+  $('#models').textContent = `${d.model} · ${d.sd_model.split('/').pop()}`;
+  $('#clips').innerHTML = d.clips.length ? d.clips.map(c => `<button class="clip${picked === c.clip ? ' on' : ''}" data-c="${esc(c.clip)}" title="${esc(c.title)}">
+      <video src="${esc(c.url)}#t=0.5" muted preload="metadata"></video><div class="n">${esc(c.name)}</div>${c.broll_url ? '<div class="tag">has b-roll</div>' : ''}</button>`).join('')
+    : '<div class="empty">No clips yet. Make some on the main page first, or upload an mp4.</div>';
+}
+$('#clips').onclick = e => { const b = e.target.closest('.clip'); if (!b) return; picked = b.dataset.c;
+  document.querySelectorAll('.clip').forEach(x => x.classList.toggle('on', x === b)); $('#picked').textContent = picked; $('#go').disabled = false; };
+$('#refresh').onclick = () => loadClips().catch(e => alertBox(e.message));
+$('#upBtn').onclick = () => $('#upFile').click();
+$('#upFile').onchange = async () => {
+  const f = $('#upFile').files[0]; if (!f) return;
+  if (f.size > 100 * 1024 * 1024) return alertBox('That file is over 100 MB. Add it as a Kaggle dataset instead.');
+  $('#upBtn').textContent = 'Uploading…';
+  try { const d = await api('api/upload?name=' + encodeURIComponent(f.name), {method: 'POST', body: f}); picked = d.clip; await loadClips();
+        $('#picked').textContent = picked; $('#go').disabled = false; }
+  catch (e) { alertBox(e.message); } finally { $('#upBtn').textContent = 'Upload mp4'; $('#upFile').value = ''; }
+};
+function alertBox(m) { $('#job').innerHTML = `<p class="err">${esc(m)}</p>`; }
+$('#go').onclick = async () => {
+  $('#go').disabled = true;
+  try { const j = await api('api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({clip: picked, count: +$('#count').value, mode: $('#mode').value, style: $('#style').value})});
+        watch(j.id); }
+  catch (e) { alertBox(e.message); $('#go').disabled = false; }
+};
+function render(j) {
+  const ins = (j.inserts || []).map(it => `<div class="ins">${it.image_url ? `<img src="${esc(it.image_url)}" alt="">` : '<div class="ph"></div>'}
+      <div><b>${it.start.toFixed(1)}s – ${(it.start + it.duration).toFixed(1)}s</b><div class="small muted">${esc(it.prompt)}</div></div></div>`).join('');
+  $('#job').innerHTML = `<div style="margin-top:16px"><div class="row" style="justify-content:space-between"><b>${esc(j.step)}</b><span class="small muted">${Math.round(j.progress * 100)}%</span></div>
+    <div class="bar"><div style="width:${j.progress * 100}%"></div></div>${j.error ? `<p class="err">${esc(j.error)}</p>` : ''}${ins}
+    ${j.result_url ? `<video class="result" src="${esc(j.result_url)}" controls playsinline></video><a class="btn" href="${esc(j.result_url)}" download>Download clip</a>` : ''}</div>`;
+}
+function watch(id) {
+  clearInterval(poll);
+  const tick = async () => { try { const j = await api('api/jobs/' + id); render(j);
+      if (j.state === 'done' || j.state === 'error') { clearInterval(poll); $('#go').disabled = !picked; loadClips(); } } catch (e) { alertBox(e.message); } };
+  tick(); poll = setInterval(tick, 2000);
+}
+loadClips().catch(e => alertBox(e.message));
+</script>
+</body>
+</html>

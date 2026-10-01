@@ -10,6 +10,7 @@ By Er. Gunjan Ghimire.
 |---|---|---|---|
 | [`notebooks/ollama-chat`](notebooks/ollama-chat) | Ollama (`llama3.2`) with a lightweight streaming chat UI | None (CPU) or GPU | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/ollama-chat/ollama-chat.ipynb) |
 | [`notebooks/laya-studio`](notebooks/laya-studio) | **Laya Studio for Data**: label bills, receipts and fintech text; fine-tune [Laya](https://github.com/NandhaKishorM/laya) on it; test the result | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/laya-studio/laya-studio.ipynb) |
+| [`notebooks/openshorts-studio`](notebooks/openshorts-studio) | **OpenShorts Studio**: long video → vertical shorts ([OpenShorts](https://github.com/mutonby/openshorts) + faster-whisper + Ollama), plus Stable Diffusion b-roll; MCP server for agents | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/openshorts-studio/openshorts-studio.ipynb) |
 
 ## Quick start
 
@@ -28,6 +29,7 @@ No tokens or domains are stored in the notebooks. Everything comes from Kaggle s
 |---|---|---|
 | ollama-chat | `CF_TUNNEL_TOKEN` | – |
 | laya-studio | `LAYA_TUNNEL_TOKEN` | `LAYA_UI_PASSWORD` (UI login; any username), `HF_TOKEN` (push trained models to Hugging Face) |
+| openshorts-studio | `OPENSHORTS_TUNNEL_TOKEN` | `OPENSHORTS_UI_PASSWORD` (UI and MCP login), `OPENSHORTS_YT_COOKIES` (YouTube cookies if downloads are blocked) |
 
 ## Limits to know
 
@@ -43,3 +45,5 @@ See [`AGENTS.md`](AGENTS.md). It explains the layout, how to hand a notebook to 
 
 - Laya model and training recipe: [Convai Innovations](https://github.com/NandhaKishorM/laya), Apache 2.0.
 - Ollama: [ollama.com](https://ollama.com).
+- OpenShorts: [mutonby/openshorts](https://github.com/mutonby/openshorts), MIT.
+- SDXL 1.0 base: [Stability AI](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0), CreativeML OpenRAIL++.
