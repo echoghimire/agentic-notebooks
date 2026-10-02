@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Whisper Studio</title>
+<link rel="stylesheet" href="/static/kit.css">
+<style>
+.layout{display:grid;grid-template-columns:330px 1fr;gap:16px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:1fr}}
+.joblist{display:flex;flex-direction:column;gap:6px;max-height:70vh;overflow:auto}
+.jobitem{border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer;background:var(--panel2)}
+.jobitem.on{border-color:var(--accent)}
+.jobitem .t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.utt{display:grid;grid-template-columns:62px 130px 1fr;gap:8px;padding:6px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.utt:hover{background:var(--panel2)}
+.utt.now{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.utt .who{font-weight:600}
+.transcript{max-height:60vh;overflow:auto}
+.summary{white-space:pre-wrap;background:var(--panel2);border-radius:8px;padding:12px;font-size:13.5px}
+.spk input{width:140px}
+audio{width:100%}
+@media (max-width:640px){.utt{grid-template-columns:52px 1fr}.utt .who{grid-column:2}.utt .tx{grid-column:1/3}}
+</style></head><body>
+<header class="top">
+  <h1>Whisper Diarization Studio</h1><span class="sub" id="models"></span>
+  <div class="right small muted" id="status"></div>
+</header>
+<main>
+<div class="card">
+  <h2>New transcription</h2>
+  <div class="grid">
+    <div class="col">
+      <div class="drop" id="drop">Drop audio or video here, or click to choose<br><span class="small">Up to 100 MB through Cloudflare; attach bigger files as a Kaggle dataset.</span></div>
+      <input type="file" id="file" accept="audio/*,video/*" multiple hidden>
+      <div class="row"><input id="url" placeholder="…or a URL (direct file, YouTube, podcast page)" style="flex:1"><button id="addUrl">Add URL</button></div>
+      <div class="row"><select id="path" style="flex:1"><option value="">…or a file attached to the notebook</option></select><button id="addPath">Add file</button></div>
+    </div>
+    <div class="col">
+      <div class="row">
+        <label>Language<input id="language" placeholder="auto" style="width:80px"></label>
+        <label>Task<select id="task"><option value="transcribe">Transcribe</option><option value="translate">Translate to English</option></select></label>
+        <label>Speakers<input id="num_speakers" type="number" min="1" max="30" placeholder="auto" style="width:80px"></label>
+      </div>
+      <div class="row">
+        <label class="inline"><input type="checkbox" id="diarize" checked> Who spoke when</label>
+        <label class="inline"><input type="checkbox" id="summarize" checked> Meeting summary</label>
+      </div>
+      <label>Names and terms to spell right (optional)<input id="initial_prompt" placeholder="e.g. Gunjan, Kathmandu, Kubernetes"></label>
+      <div class="small muted" id="diarNote"></div>
+    </div>
+  </div>
+</div>
+<div class="layout">
+  <div class="card"><h2>Jobs</h2><div class="joblist" id="jobs"><div class="empty">No jobs yet.</div></div></div>
+  <div class="card" id="detail"><div class="empty">Pick a job to see its transcript.</div></div>
+</div>
+<div class="card"><h2>For agents</h2><p class="small muted">MCP tools: transcribe, get_job, get_transcript, list_jobs, rename_speakers, summarize, delete_job, list_input_files, server_status. Uploads: <code>POST /api/jobs/upload?name=file.mp3</code> with the raw file as the body.</p><pre class="log" id="mcp"></pre></div>
+</main>
+<script src="/static/kit.js"></script>
+<script>
+$("#mcp").textContent = mcpHelp("whisper");
+let current = null, currentData = null, info = null;
+
+function opts() {
+  const o = {language: $("#language").value.trim(), task: $("#task").value, diarize: $("#diarize").checked,
+             summarize: $("#summarize").checked, initial_prompt: $("#initial_prompt").value.trim()};
+  if ($("#num_speakers").value) o.num_speakers = +$("#num_speakers").value;
+  return o;
+}
+
+async function upload(files) {
+  for (const f of files) {
+    const q = new URLSearchParams({name: f.name, ...Object.fromEntries(Object.entries(opts()).map(([k, v]) => [k, String(v)]))});
+    toast("Uploading " + f.name + " (" + fmtBytes(f.size) + ")…");
+    const j = await guard(() => api("/api/jobs/upload?" + q, {body: f}), "Queued " + f.name);
+    current = j.id;
+  }
+  loadJobs();
+}
+dropZone($("#drop"), $("#file"), upload);
+$("#addUrl").onclick = async () => { const url = $("#url").value.trim(); if (!url) return;
+  const j = await guard(() => api("/api/jobs", {json: {url, ...opts()}}), "Queued"); $("#url").value = ""; current = j.id; loadJobs(); };
+$("#addPath").onclick = async () => { const path = $("#path").value; if (!path) return;
+  const j = await guard(() => api("/api/jobs", {json: {path, ...opts()}}), "Queued"); current = j.id; loadJobs(); };
+
+async function loadInfo() {
+  info = await api("/api/info");
+  $("#models").textContent = "whisper " + info.whisper_model + (info.summary_model ? " · summaries " + info.summary_model : "");
+  $("#status").textContent = info.queue.running + " running · " + info.queue.queued + " queued";
+  $("#diarNote").textContent = info.diarization.available ? "" : "Speaker labels are off: " + info.diarization.detail;
+  if (!info.summary_model) { $("#summarize").checked = false; $("#summarize").disabled = true; }
+}
+async function loadSources() {
+  const {files} = await api("/api/sources");
+  for (const f of files) $("#path").append(el("option", {value: f.path}, f.path.replace("/kaggle/input/", "") + " (" + fmtBytes(f.size) + ")"));
+}
+
+async function loadJobs() {
+  const {jobs} = await api("/api/jobs");
+  const box = $("#jobs");
+  box.replaceChildren(...jobs.map(j => el("div", {class: "jobitem" + (j.id === current ? " on" : ""), onclick: () => { current = j.id; loadJobs(); showJob(); }},
+    el("div", {class: "t"}, j.title),
+    el("div", {class: "row small muted"}, badge(j.state), j.state === "running" ? j.step + " " + Math.round(j.progress * 100) + "%" : fmtAgo(j.created),
+       j.duration ? "· " + fmtDur(j.duration) : ""),
+    j.state === "running" ? progressBar(j.progress) : null)));
+  if (!jobs.length) box.append(el("div", {class: "empty"}, "No jobs yet."));
+  if (!current && jobs.length) { current = jobs[0].id; showJob(); }
+  const cur = jobs.find(j => j.id === current);
+  if (cur && currentData && (cur.state !== currentData.state || cur.summary_state !== currentData.summary_state || cur.state === "running")) showJob();
+}
+
+function label(spk) { if (!spk) return ""; return (currentData.speaker_names || {})[spk] || spk.replace(/^SPEAKER_0*(\d+)/, (m, n) => "Speaker " + (+n + 1)); }
+
+async function showJob() {
+  if (!current) return;
+  const j = currentData = await api("/api/jobs/" + current);
+  const d = $("#detail");
+  const head = el("div", {class: "row", style: {marginBottom: "10px"}}, el("h2", {style: {margin: 0}}, j.title), badge(j.state),
+    j.duration ? el("span", {class: "muted small"}, fmtDur(j.duration) + (j.language ? " · " + j.language : "")) : null,
+    el("span", {style: {marginLeft: "auto"}, class: "row"},
+      j.state === "error" ? el("button", {onclick: () => guard(() => api("/api/jobs/" + j.id + "/retry", {json: {}}), "Queued again").then(loadJobs)}, "Retry") : null,
+      el("button", {class: "danger", onclick: async () => { if (!confirm("Delete this job and its files?")) return;
+        await guard(() => api("/api/jobs/" + j.id + "/delete", {json: {}}), "Deleted"); current = null; d.replaceChildren(el("div", {class: "empty"}, "Deleted.")); loadJobs(); }}, "Delete")));
+  const parts = [head];
+  if (j.state === "queued" || j.state === "running") parts.push(el("div", {class: "col"}, el("div", {}, j.step), progressBar(j.progress)));
+  if (j.error) parts.push(el("pre", {class: "log"}, j.error));
+  (j.warnings || []).forEach(w => parts.push(el("div", {class: "small muted"}, "Note: " + w)));
+  if (j.state === "done") {
+    const audio = j.has_audio ? el("audio", {controls: true, src: "/api/jobs/" + j.id + "/audio", preload: "metadata"}) : null;
+    if (audio) parts.push(audio);
+    parts.push(el("div", {class: "row", style: {margin: "10px 0"}}, "Download:",
+      ...["md", "txt", "srt", "vtt", "json"].map(f => el("a", {class: "btn", href: "/api/jobs/" + j.id + "/download/" + f}, f))));
+    const stats = j.speaker_stats || {};
+    if (Object.keys(stats).length) {
+      const rows = Object.entries(stats).sort((a, b) => b[1].seconds - a[1].seconds).map(([spk, s]) =>
+        el("div", {class: "row spk"}, el("span", {class: "mono", style: {width: "100px"}}, spk),
+           el("input", {value: (j.speaker_names || {})[spk] || "", placeholder: label(spk), "data-spk": spk}),
+           el("span", {class: "small muted"}, fmtDur(s.seconds) + " · " + s.words + " words")));
+      parts.push(el("h3", {}, "Speakers"), ...rows, el("button", {onclick: async () => {
+        const names = {}; $$("input[data-spk]", d).forEach(i => names[i.dataset.spk] = i.value.trim());
+        await guard(() => api("/api/jobs/" + j.id + "/speakers", {json: {names}}), "Names saved"); showJob(); }}, "Save names"));
+    }
+    if (info && info.summary_model) {
+      const sumBtn = el("button", {onclick: async () => { await guard(() => api("/api/jobs/" + j.id + "/summarize", {json: {instructions: $("#sumx").value}}), "Summarizing…"); showJob(); }},
+        j.summary ? "Rewrite summary" : "Write summary");
+      parts.push(el("h3", {}, "Summary"), el("div", {class: "row"}, el("input", {id: "sumx", placeholder: "Extra instructions (optional)", style: {flex: 1}}), sumBtn));
+      if (j.summary_state === "running") parts.push(el("div", {class: "small muted"}, "Writing the summary… (uses the current speaker names)"));
+      if (j.summary_state === "error") parts.push(el("div", {class: "small", style: {color: "var(--bad)"}}, j.summary_error));
+      if (j.summary) parts.push(el("div", {class: "summary", style: {marginTop: "8px"}}, j.summary));
+    }
+    const tr = el("div", {class: "transcript"}, ...(j.utterances || []).map(u => el("div", {class: "utt", "data-s": u.start, "data-e": u.end,
+      onclick: () => { if (audio) { audio.currentTime = u.start; audio.play(); } }},
+      el("span", {class: "mono muted"}, fmtDur(u.start)), el("span", {class: "who"}, label(u.speaker)), el("span", {class: "tx"}, u.text))));
+    parts.push(el("h3", {}, "Transcript"), tr);
+    if (audio) audio.addEventListener("timeupdate", () => {
+      const t = audio.currentTime;
+      $$(".utt", tr).forEach(x => x.classList.toggle("now", t >= +x.dataset.s && t < +x.dataset.e));
+    });
+  }
+  d.replaceChildren(...parts);
+}
+
+loadSources().catch(() => {});
+every(5000, loadInfo);
+every(3000, loadJobs);
+</script></body></html>
