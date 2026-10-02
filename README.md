@@ -27,7 +27,7 @@ No tokens or domains are stored in the notebooks. Everything comes from Kaggle s
 
 | Notebook | Required | Optional |
 |---|---|---|
-| ollama-chat | `CF_TUNNEL_TOKEN` | – |
+| ollama-chat | `OLLAMA_TUNNEL_TOKEN` (old name `CF_TUNNEL_TOKEN` still works) | `OLLAMA_UI_PASSWORD` (UI login; any username) |
 | laya-studio | `LAYA_TUNNEL_TOKEN` | `LAYA_UI_PASSWORD` (UI login; any username), `HF_TOKEN` (push trained models to Hugging Face) |
 | openshorts-studio | `OPENSHORTS_TUNNEL_TOKEN` | `OPENSHORTS_UI_PASSWORD` (UI and MCP login), `OPENSHORTS_YT_COOKIES` (YouTube cookies if downloads are blocked) |
 
@@ -35,7 +35,7 @@ No tokens or domains are stored in the notebooks. Everything comes from Kaggle s
 
 - Kaggle sessions stop after about 12 hours, and GPU time is capped per week. These are for building, testing and demos, not always-on hosting.
 - `/kaggle/working` is wiped when a session ends. Download results or push them to Hugging Face.
-- Anything behind the tunnel is on the public internet. Put a password on it (Laya Studio has one built in) or add Cloudflare Access.
+- Anything behind the tunnel is on the public internet. Put a password on it (every notebook here supports one) or add Cloudflare Access.
 
 ## For agents
 

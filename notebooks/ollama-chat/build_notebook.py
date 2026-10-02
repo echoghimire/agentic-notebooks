@@ -17,7 +17,10 @@ Run the cells top to bottom (or **Run All**). Nothing blocks until the last cell
 - Chat UI: port `7860` (no Gradio; uses Python's standard library, so there is nothing to install)
 - Public URL: whatever hostname your tunnel routes to `http://localhost:7860` (for example `chat.example.com`)
 
-**Before running:** add your tunnel token as a Kaggle secret named `CF_TUNNEL_TOKEN` (Add-ons → Secrets) and turn on Internet in the session settings.""")
+**Before running:** add your tunnel token as a Kaggle secret named `OLLAMA_TUNNEL_TOKEN` (Add-ons → Secrets) and turn on Internet in the session settings.
+The old name `CF_TUNNEL_TOKEN` still works.
+
+**Optional:** add a secret named `OLLAMA_UI_PASSWORD` to require a login (any username + that password). Without it, anyone who knows your hostname can use the chat and your session's GPU.""")
 
 code("""# 1. Install Ollama and cloudflared
 !apt-get -qq update > /dev/null && apt-get -qq install -y zstd > /dev/null
@@ -53,10 +56,21 @@ subprocess.run(["ollama", "pull", MODEL_NAME], check=True)
 print(f"Model '{MODEL_NAME}' ready.")""")
 
 code(r'''# 3. Lightweight chat UI + proxy on port 7860 (standard library only, runs in a background thread)
-import json, socket, threading
+import base64, hmac, json, socket, threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 PORT = 7860
+
+def kaggle_secret(name):
+    """Read a Kaggle secret; returns None if it doesn't exist or isn't attached to this notebook."""
+    try:
+        from kaggle_secrets import UserSecretsClient
+        return UserSecretsClient().get_secret(name) or None
+    except Exception:
+        return None
+
+PASSWORD = kaggle_secret("OLLAMA_UI_PASSWORD")   # optional; without it the UI is open to anyone with the URL
+print("UI login:", "any username + OLLAMA_UI_PASSWORD" if PASSWORD else "off (no OLLAMA_UI_PASSWORD secret)")
 
 HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -121,12 +135,31 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _authed(self):
+        if not PASSWORD:
+            return True
+        h = self.headers.get("Authorization", "")
+        if h.startswith("Basic "):
+            try:
+                _, _, given = base64.b64decode(h[6:]).decode("utf-8").partition(":")
+                if hmac.compare_digest(given.encode(), PASSWORD.encode()):
+                    return True
+            except Exception:
+                pass
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Ollama Chat", charset="UTF-8"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def _chunk(self, text):
         data = text.encode()
         self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
         self.wfile.flush()
 
     def do_GET(self):
+        if self.path != "/health" and not self._authed():   # /health stays open for the keep-alive cell
+            return
         if self.path in ("/", "/index.html"):
             self._send(200, HTML, "text/html; charset=utf-8")
         elif self.path == "/health":
@@ -135,6 +168,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, "Not found", "text/plain")
 
     def do_POST(self):
+        if not self._authed():
+            return
         if self.path != "/api/chat":
             return self._send(404, "Not found", "text/plain")
         try:
@@ -215,14 +250,8 @@ for host in ("127.0.0.1", "[::1]"):
         print(host, "-> FAILED:", e)''')
 
 code("""# 4. Start the Cloudflare tunnel in the background (does NOT block the notebook)
-TOKEN = ""
-try:
-    from kaggle_secrets import UserSecretsClient
-    TOKEN = UserSecretsClient().get_secret("CF_TUNNEL_TOKEN")
-except Exception as e:
-    print("Could not read Kaggle secret CF_TUNNEL_TOKEN:", e)
-
-assert TOKEN, "Add your tunnel token as a Kaggle secret named CF_TUNNEL_TOKEN"
+TOKEN = kaggle_secret("OLLAMA_TUNNEL_TOKEN") or kaggle_secret("CF_TUNNEL_TOKEN")   # CF_TUNNEL_TOKEN: old name
+assert TOKEN, "Add your tunnel token as a Kaggle secret named OLLAMA_TUNNEL_TOKEN"
 
 if "tunnel_proc" in globals() and tunnel_proc.poll() is None:
     tunnel_proc.terminate()

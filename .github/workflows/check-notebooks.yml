@@ -1,0 +1,40 @@
+name: Check notebooks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile Python sources
+        run: python -m compileall -q notebooks
+
+      - name: Rebuild every notebook
+        run: |
+          for dir in notebooks/*/; do
+            if [ -f "$dir/src/build_notebook.py" ]; then builder=src/build_notebook.py
+            elif [ -f "$dir/build_notebook.py" ]; then builder=build_notebook.py
+            else echo "::error::$dir has no build_notebook.py"; exit 1
+            fi
+            echo "== $dir"
+            (cd "$dir" && python "$builder")
+          done
+
+      - name: Generated notebooks match their sources
+        run: |
+          if ! git diff --exit-code -- '*.ipynb'; then
+            echo "::error::A committed .ipynb is out of date. Run its build_notebook.py and commit the result; never hand-edit a generated notebook."
+            exit 1
+          fi
+          untracked=$(git ls-files --others --exclude-standard -- '*.ipynb')
+          if [ -n "$untracked" ]; then
+            echo "::error::Builders produced notebooks that are not committed: $untracked"
+            exit 1
+          fi

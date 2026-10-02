@@ -11,7 +11,7 @@ notebooks/<name>/
   src/                  # app sources + build_notebook.py, when the app is more than a cell or two
 ```
 
-Edit sources and `build_notebook.py`, then regenerate the `.ipynb` (`python src/build_notebook.py` or `python build_notebook.py` from the notebook folder). Never hand-edit a generated `.ipynb`.
+Edit sources and `build_notebook.py`, then regenerate the `.ipynb` (`python src/build_notebook.py` or `python build_notebook.py` from the notebook folder). Never hand-edit a generated `.ipynb`. CI (`.github/workflows/check-notebooks.yml`) rebuilds every notebook and fails if the committed `.ipynb` differs.
 
 ## Helping a user run a notebook
 
@@ -28,7 +28,7 @@ Edit sources and `build_notebook.py`, then regenerate the `.ipynb` (`python src/
 - **Pass the tunnel token to cloudflared through the `TUNNEL_TOKEN` environment variable**, never on the command line or in printed output.
 - **Re-running a cell must be safe.** Stop the old server or process before starting a new one.
 - **Prefer the Python standard library for UIs.** Heavy UI frameworks slow the install on Kaggle; this repo exists partly because of that.
-- **Expose `GET /health` returning `{"ok": true}`** so the keep-alive cell and future Docker health checks can use it.
+- **Expose `GET /health` returning `{"ok": true}`** so the keep-alive cell and future Docker health checks can use it. (openshorts-studio uses `/healthz`, because `/health` belongs to the OpenShorts backend it proxies.)
 - **Put a password on anything that holds user data.**
 - **Add a row to the README table**, listing required and optional secrets.
 
