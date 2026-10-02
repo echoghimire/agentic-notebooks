@@ -30,7 +30,7 @@ Edit sources and `build_notebook.py`, then regenerate the `.ipynb` (`python src/
 
 ## MCP servers and APIs
 
-`comfyui-flux`, `whisper-diarization-studio`, `unsloth-finetuning-lab` and `rag-ingest-pipeline` serve an MCP endpoint at `https://<their hostname>/mcp` (Streamable HTTP, JSON responses, no sessions). Authenticate with the notebook's UI password:
+`comfyui-flux`, `whisper-diarization-studio`, `unsloth-finetuning-lab`, `rag-ingest-pipeline` and `video-studio` serve an MCP endpoint at `https://<their hostname>/mcp` (Streamable HTTP, JSON responses, no sessions). Authenticate with the notebook's UI password:
 
 ```
 claude mcp add --transport http <name> https://<hostname>/mcp --header "Authorization: Bearer <password>"
@@ -48,6 +48,7 @@ claude mcp add --transport http <name> https://<hostname>/mcp --header "Authoriz
 | whisper-diarization-studio | `transcribe(url \| path, language?, task?, diarize?, num_speakers?, min_speakers?, max_speakers?, summarize?, initial_prompt?, title?)`; `get_job(job_id, wait_seconds?)`; `get_transcript(job_id, format?=md\|txt\|srt\|vtt\|json, offset?, max_chars?)`; `list_jobs(limit?)`; `rename_speakers(job_id, names)`; `summarize(job_id, instructions?, wait_seconds?)`; `delete_job(job_id)`; `list_input_files()`; `server_status()` |
 | unsloth-finetuning-lab | `add_examples(records, mode?)`; `import_hf_dataset(name, split?, config?, max_rows?, mode?)`; `dataset_info()`; `list_base_models()`; `start_training(name?, base_model?, epochs?, max_steps?, learning_rate?, lora_r?, lora_alpha?, max_seq_length?, batch_size?, grad_accum?, val_frac?)`; `training_status(wait_seconds?)`; `stop_training(force?)`; `list_runs()`; `get_run(name)`; `chat(model, messages, max_new_tokens?, temperature?)` (model is a Hub id or `run:<name>`; returns `loading: true` until the model is loaded); `export_run(name, format)`; `export_status(name)`; `push_to_hub(name, repo_id, what?, private?)`; `delete_run(name)` |
 | rag-ingest-pipeline | `ingest(collection, urls?, paths?, texts?, wait_seconds?)` (creates the collection if needed); `job_status(job_id, wait_seconds?)`; `search(collection, query, top_k?, rerank?, document_ids?)`; `get_chunks(collection, chunk_ids, context?)`; `list_documents(collection, q?, offset?, limit?)`; `delete_document(collection, document_id)`; `create_collection(name, chunk_size?, chunk_overlap?)`; `list_collections()`; `export_collection(collection)`; `list_input_files()`; `server_status()` |
+| video-studio | `make_video(source, style?, length?, voice?, music?, captions?, formats?, quality?, review?, wait_seconds?)` (source is any link or an idea; returns a job; rendering takes minutes, so poll); `get_job(job_id, wait_seconds?)` (files.landscape.mp4 / files.reel.mp4 when done); `get_storyboard(job_id)`; `update_storyboard(job_id, storyboard, render?)`; `render(job_id, rewrite?, ...options)`; `list_jobs(limit?)`; `delete_job(job_id)`; `list_options()` |
 
 Each notebook's README lists its REST endpoints. openshorts-studio has its own MCP server (OpenShorts') at `/mcp`, with the same Bearer authentication.
 

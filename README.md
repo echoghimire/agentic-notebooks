@@ -4,7 +4,7 @@ Self-hosted AI apps that run free on Kaggle notebooks and open in your browser t
 
 Each notebook is self-contained: it installs what it needs, starts its app in the background on port 7860, connects the tunnel, then keeps the session alive. If the tunnel secret is missing, the app still runs inside the session and the notebook tells you how to publish it.
 
-The newer notebooks (ComfyUI, Whisper, Unsloth, RAG) also expose an **MCP server at `/mcp`**, so coding agents such as Claude Code can drive them:
+The newer notebooks (ComfyUI, Whisper, Unsloth, RAG, Video Studio) also expose an **MCP server at `/mcp`**, so coding agents such as Claude Code can drive them:
 
 ```
 claude mcp add --transport http flux https://flux.example.com/mcp --header "Authorization: Bearer <your UI password>"
@@ -21,6 +21,7 @@ By Er. Gunjan Ghimire.
 | [`notebooks/whisper-diarization-studio`](notebooks/whisper-diarization-studio) | **Whisper Diarization Studio**: transcripts with who-spoke-when (faster-whisper + pyannote), meeting summaries and action items (Ollama), SRT/VTT; MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/whisper-diarization-studio/whisper-diarization-studio.ipynb) |
 | [`notebooks/unsloth-finetuning-lab`](notebooks/unsloth-finetuning-lab) | **Unsloth Fine-tuning Lab**: dataset → 4-bit LoRA fine-tune → chat → GGUF / merged export → Hugging Face; MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/unsloth-finetuning-lab/unsloth-finetuning-lab.ipynb) |
 | [`notebooks/rag-ingest-pipeline`](notebooks/rag-ingest-pipeline) | **RAG Ingest Pipeline**: PDFs, DOCX, web pages and whole datasets → chunks → bge-m3 embeddings → search with reranking → export for any vector DB; MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/rag-ingest-pipeline/rag-ingest-pipeline.ipynb) |
+| [`notebooks/video-studio`](notebooks/video-studio) | **Video Studio**: any link (GitHub, article, YouTube, PDF) or idea → narrated video with music as 16:9 and 9:16 reel (local LLM + SDXL + Kokoro TTS + MusicGen); MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/video-studio/video-studio.ipynb) |
 
 ## Quick start
 
@@ -44,6 +45,7 @@ No tokens or domains are stored in the notebooks. Everything comes from Kaggle s
 | whisper-diarization-studio | `WHISPER_TUNNEL_TOKEN` | `WHISPER_UI_PASSWORD` (UI and MCP login), `HF_TOKEN` (speaker labels; accept the pyannote terms) |
 | unsloth-finetuning-lab | `UNSLOTH_TUNNEL_TOKEN` | `UNSLOTH_UI_PASSWORD` (UI and MCP login), `HF_TOKEN` (gated base models, Hub pushes) |
 | rag-ingest-pipeline | `RAG_TUNNEL_TOKEN` | `RAG_UI_PASSWORD` (UI and MCP login) |
+| video-studio | `VIDEO_TUNNEL_TOKEN` | `VIDEO_UI_PASSWORD` (UI and MCP login), `GITHUB_TOKEN` (more GitHub API lookups) |
 
 ## Limits to know
 
@@ -65,3 +67,4 @@ See [`AGENTS.md`](AGENTS.md). It explains the layout, how to hand a notebook to 
 - faster-whisper: [SYSTRAN](https://github.com/SYSTRAN/faster-whisper), MIT. pyannote.audio: [pyannote](https://github.com/pyannote/pyannote-audio), MIT (models gated).
 - Unsloth: [unslothai/unsloth](https://github.com/unslothai/unsloth), Apache 2.0.
 - bge-m3 and bge-reranker-v2-m3: [BAAI](https://huggingface.co/BAAI), MIT / Apache 2.0.
+- Video Studio: inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) (Apache 2.0). Kokoro-82M: [hexgrad](https://huggingface.co/hexgrad/Kokoro-82M), Apache 2.0. MusicGen: [Meta](https://huggingface.co/facebook/musicgen-small), weights CC-BY-NC 4.0.
