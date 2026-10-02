@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RAG Ingest</title>
+<link rel="stylesheet" href="/static/kit.css">
+<style>
+.layout{display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start}
+@media (max-width:860px){.layout{grid-template-columns:1fr}}
+.colitem{padding:8px 10px;border:1px solid var(--line);border-radius:8px;cursor:pointer;background:var(--panel2);margin-bottom:6px}
+.colitem.on{border-color:var(--accent)}
+.hit{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+.hit .meta{font-size:12px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.hit .tx{white-space:pre-wrap;font-size:13.5px;max-height:220px;overflow:auto}
+textarea.small{min-height:70px}
+</style></head><body>
+<header class="top"><h1>RAG Ingest Pipeline</h1><span class="sub" id="models"></span><div class="right small muted" id="status"></div></header>
+<main><div class="layout">
+  <div class="card"><h2>Collections</h2><div id="cols"></div>
+    <div class="col" style="margin-top:10px"><input id="newname" placeholder="new-collection">
+      <div class="row"><label>Chunk chars<input id="csize" type="number" value="1200" style="width:90px"></label><label>Overlap<input id="cover" type="number" value="150" style="width:70px"></label></div>
+      <button id="create">Create</button></div></div>
+  <div>
+    <div class="card" id="nocol"><div class="empty">Create or pick a collection.</div></div>
+    <div id="colview" hidden>
+      <div class="card"><div class="row"><h2 style="margin:0" id="ctitle"></h2><span class="small muted" id="cstats"></span>
+        <span style="margin-left:auto" class="row"><a class="btn" id="export">Export zip</a><button class="danger" id="delcol">Delete</button></span></div></div>
+      <div class="card"><h2>Search</h2>
+        <form id="sf" class="row"><input id="query" placeholder="Ask something…" style="flex:1"><label class="inline"><input type="checkbox" id="rerank" checked> Rerank</label>
+          <select id="topk"><option>5</option><option selected>8</option><option>15</option><option>30</option></select><button class="primary">Search</button></form>
+        <div id="hits" style="margin-top:12px"></div></div>
+      <div class="card"><h2>Add documents</h2>
+        <div class="grid">
+          <div class="col"><div class="drop" id="drop">Drop files (PDF, DOCX, HTML, Markdown, text, code, notebooks)</div><input type="file" id="file" multiple hidden>
+            <div class="small muted">Up to 100 MB each through Cloudflare. For big corpora attach a Kaggle dataset and ingest its folder.</div></div>
+          <div class="col"><textarea class="small" id="urls" placeholder="URLs, one per line"></textarea>
+            <div class="row"><select id="folder" style="flex:1"><option value="">Folder or file under /kaggle/input…</option></select></div>
+            <button id="addsrc">Ingest URLs / folder</button></div>
+          <div class="col"><input id="ttitle" placeholder="Title"><textarea class="small" id="ttext" placeholder="…or paste text"></textarea><button id="addtext">Ingest text</button></div>
+        </div>
+        <div id="jobs" style="margin-top:12px"></div></div>
+      <div class="card"><div class="row"><h2 style="margin:0">Documents</h2><input id="dq" placeholder="Filter" style="margin-left:auto"></div>
+        <table><thead><tr><th>Title</th><th>Source</th><th>Chunks</th><th></th></tr></thead><tbody id="docs"></tbody></table></div>
+    </div>
+  </div>
+</div>
+<div class="card"><h2>For agents</h2><p class="small muted">MCP tools: list_collections, create_collection, ingest, job_status, search, get_chunks, list_documents, delete_document, export_collection, list_input_files, server_status.</p><pre class="log" id="mcp"></pre></div>
+</main>
+<script src="/static/kit.js"></script>
+<script>
+let cur = null;
+$("#mcp").textContent = mcpHelp("rag");
+
+async function loadInfo() {
+  const i = await api("/api/info");
+  $("#models").textContent = i.embed_model + " · rerank " + i.rerank_model;
+  $("#status").textContent = (i.gpus.length ? i.gpus.length + " GPU" : "CPU") + " · jobs " + i.jobs.running + " running, " + i.jobs.queued + " queued";
+}
+async function loadCols() {
+  const {collections} = await api("/api/collections");
+  $("#cols").replaceChildren(...collections.map(c => el("div", {class: "colitem" + (c.name === cur ? " on" : ""), onclick: () => pick(c.name)},
+    el("b", {}, c.name), el("div", {class: "small muted"}, c.documents + " docs · " + c.chunks.toLocaleString() + " chunks"))));
+  if (!collections.length) $("#cols").replaceChildren(el("div", {class: "small muted"}, "None yet."));
+  const c = collections.find(c => c.name === cur);
+  if (c) $("#cstats").textContent = c.documents + " documents · " + c.chunks.toLocaleString() + " chunks · " + fmtBytes(c.disk_bytes) + " · " + c.chunk_size + "/" + c.chunk_overlap + " chars · " + c.model;
+}
+function pick(name) { cur = name; $("#nocol").hidden = true; $("#colview").hidden = false; $("#ctitle").textContent = name;
+  $("#export").href = "/api/collections/" + name + "/export"; $("#hits").replaceChildren(); loadCols(); loadDocs(); }
+$("#create").onclick = async () => { const name = $("#newname").value.trim(); await guard(() => api("/api/collections", {json: {name, chunk_size: +$("#csize").value, chunk_overlap: +$("#cover").value}}), "Created"); pick(name); };
+$("#delcol").onclick = async () => { if (!confirm("Delete collection " + cur + " and everything in it?")) return; await guard(() => api("/api/collections/" + cur + "/delete", {json: {}})); cur = null; $("#colview").hidden = true; $("#nocol").hidden = false; loadCols(); };
+
+async function loadDocs() {
+  if (!cur) return;
+  const d = await api("/api/collections/" + cur + "/documents?limit=100&q=" + encodeURIComponent($("#dq").value));
+  $("#docs").replaceChildren(...d.documents.map(x => el("tr", {}, el("td", {}, x.title, (x.meta.warnings || []).length ? el("div", {class: "small muted"}, x.meta.warnings.join("; ")) : null),
+    el("td", {class: "small muted", style: {wordBreak: "break-all"}}, x.source), el("td", {}, x.chunks),
+    el("td", {}, el("button", {class: "danger", onclick: async () => { await guard(() => api("/api/collections/" + cur + "/documents/" + x.id + "/delete", {json: {}})); loadDocs(); loadCols(); }}, "×")))));
+  if (!d.documents.length) $("#docs").replaceChildren(el("tr", {}, el("td", {colspan: 4, class: "empty"}, "No documents yet.")));
+}
+$("#dq").oninput = loadDocs;
+
+const watching = new Set();
+async function track(job) { watching.add(job.id); renderJobs(); }
+async function renderJobs() {
+  const rows = [];
+  for (const id of [...watching]) {
+    const j = await api("/api/jobs/" + id);
+    rows.push(el("div", {class: "col", style: {marginBottom: "8px"}},
+      el("div", {class: "row small"}, badge(j.state), j.done + "/" + j.total + " files", j.added + " added", j.duplicates ? j.duplicates + " duplicates" : "", j.failed ? j.failed + " failed" : "", j.chunks + " chunks", j.current ? el("span", {class: "muted"}, "· " + j.current) : ""),
+      progressBar(j.progress),
+      ...j.results.filter(r => r.status === "error" || r.status === "empty").slice(-5).map(r => el("div", {class: "small", style: {color: "var(--bad)"}}, r.source + ": " + (r.error || (r.warnings || []).join("; "))))));
+    if (j.state === "done" || j.state === "error") { setTimeout(() => { watching.delete(id); }, 20000); loadDocs(); loadCols(); }
+  }
+  $("#jobs").replaceChildren(...rows);
+}
+dropZone($("#drop"), $("#file"), async files => {
+  for (const f of files) {
+    const j = await guard(() => api("/api/collections/" + cur + "/upload?name=" + encodeURIComponent(f.name), {body: f}));
+    track(j);
+  }
+});
+$("#addsrc").onclick = async () => {
+  const urls = $("#urls").value.split("\n").map(s => s.trim()).filter(Boolean), paths = $("#folder").value ? [$("#folder").value] : [];
+  const j = await guard(() => api("/api/collections/" + cur + "/ingest", {json: {urls, paths}}), "Queued"); $("#urls").value = ""; track(j);
+};
+$("#addtext").onclick = async () => {
+  const j = await guard(() => api("/api/collections/" + cur + "/ingest", {json: {texts: [{title: $("#ttitle").value, text: $("#ttext").value}]}}), "Queued");
+  $("#ttext").value = ""; $("#ttitle").value = ""; track(j);
+};
+$("#sf").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("#hits").replaceChildren(el("div", {class: "muted small"}, "Searching… (the first search loads the models)"));
+  const r = await guard(() => api("/api/collections/" + cur + "/search", {json: {query: $("#query").value, top_k: +$("#topk").value, rerank: $("#rerank").checked}}));
+  $("#hits").replaceChildren(el("div", {class: "small muted", style: {marginBottom: "8px"}}, r.results.length + " results in " + r.ms + " ms"),
+    ...r.results.map(h => el("div", {class: "hit"}, el("div", {class: "meta"}, el("b", {}, h.title), h.heading ? "§ " + h.heading : "",
+      h.page_start ? "p. " + h.page_start + (h.page_end && h.page_end !== h.page_start ? "–" + h.page_end : "") : "",
+      "score " + h.score + (h.rerank_score != null ? " · rerank " + h.rerank_score : ""), "chunk " + h.chunk_id),
+      el("div", {class: "tx"}, h.text), el("div", {class: "small muted", style: {marginTop: "6px", wordBreak: "break-all"}}, h.source))));
+});
+(async () => {
+  try { const {folders} = await api("/api/sources");
+    folders.forEach(f => $("#folder").append(el("option", {value: f.folder}, f.folder.replace("/kaggle/input/", "") + " (" + f.files + " files)"))); } catch (e) {}
+})();
+every(5000, loadInfo);
+every(8000, loadCols);
+every(2000, () => watching.size ? renderJobs() : null);
+</script></body></html>
