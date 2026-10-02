@@ -160,25 +160,35 @@ def start(port=7860, password=None, dist=None, broll_app=None):
     stop()
     CFG.update(password=password or None, dist=dist)
     app = build_app(broll_app)
-    for host in ("0.0.0.0", "::"):
-        if host == "::":
-            try:
-                s = socket.socket(socket.AF_INET6)
-                s.close()
-            except OSError:
-                continue
-        cfg = uvicorn.Config(app, host=host, port=port, log_level="warning", proxy_headers=True,
+    for family, host in ((socket.AF_INET, "0.0.0.0"), (socket.AF_INET6, "::")):
+        # Bind the sockets here: uvicorn's own "::" socket is dual-stack and collides with 0.0.0.0.
+        try:
+            sock = socket.socket(family, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if family == socket.AF_INET6:
+                sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            sock.bind((host, port))
+        except OSError as e:
+            print("Could not listen on [%s]:%d -> %s" % (host, port, e))
+            continue
+        cfg = uvicorn.Config(app, log_level="warning", proxy_headers=True,
                              forwarded_allow_ips="*", timeout_keep_alive=30)
         server = uvicorn.Server(cfg)
         server.install_signal_handlers = lambda: None   # running inside a notebook thread
-        t = threading.Thread(target=server.run, daemon=True)
+        t = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
         t.start()
-        SERVERS.append((server, t))
+        SERVERS.append((server, t, sock))
+    if not SERVERS:
+        raise RuntimeError("nothing is listening on port %d" % port)
     return app
 
 
 def stop():
     while SERVERS:
-        server, t = SERVERS.pop()
+        server, t, sock = SERVERS.pop()
         server.should_exit = True
         t.join(timeout=5)
+        try:
+            sock.close()
+        except OSError:
+            pass

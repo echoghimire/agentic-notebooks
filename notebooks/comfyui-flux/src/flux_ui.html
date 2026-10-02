@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FLUX Studio</title>
+<link rel="stylesheet" href="/flux/static/kit.css">
+<style>
+.gallery{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.gallery figure{margin:0;background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.gallery img{width:100%;display:block;aspect-ratio:1;object-fit:cover;cursor:zoom-in}
+.gallery figcaption{padding:8px 10px;font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.gallery .ph{aspect-ratio:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--muted);padding:14px;text-align:center}
+#prompt{min-height:110px}
+dialog{border:0;padding:0;background:transparent;max-width:95vw}
+dialog img{max-width:95vw;max-height:90vh;display:block;border-radius:8px}
+dialog::backdrop{background:rgba(0,0,0,.75)}
+</style></head><body>
+<header class="top">
+  <h1>FLUX Studio</h1><span class="sub" id="variant"></span>
+  <div class="right"><span class="small muted" id="status">connecting…</span><a class="btn" href="/">Open ComfyUI editor</a></div>
+</header>
+<main>
+  <div class="card">
+    <form id="f" class="col">
+      <textarea id="prompt" placeholder="A cosy reading nook in a treehouse at dusk, warm lantern light, rain on the window, detailed illustration"></textarea>
+      <div class="row">
+        <label>Size<select id="size">
+          <option value="1024x1024">1024 × 1024 square</option>
+          <option value="832x1216">832 × 1216 portrait</option>
+          <option value="1216x832">1216 × 832 landscape</option>
+          <option value="768x1344">768 × 1344 phone</option>
+          <option value="768x768">768 × 768 fast</option>
+        </select></label>
+        <label>Steps<input id="steps" type="number" min="1" max="60" style="width:80px"></label>
+        <label id="gwrap" hidden>Guidance<input id="guidance" type="number" step="0.1" value="3.5" style="width:80px"></label>
+        <label>Images<select id="batch"><option>1</option><option>2</option><option>4</option></select></label>
+        <label>Seed<input id="seed" placeholder="random" style="width:130px"></label>
+        <button class="primary" id="go" style="margin-left:auto;align-self:flex-end">Generate</button>
+      </div>
+    </form>
+  </div>
+  <div class="card">
+    <div class="row" style="margin-bottom:10px"><h2 style="margin:0">Recent images</h2><span class="small muted">Saved in /kaggle/working/comfyui-output; click to enlarge.</span></div>
+    <div class="gallery" id="gallery"><div class="empty">No images yet.</div></div>
+  </div>
+  <div class="card">
+    <h2>For agents</h2>
+    <p class="small muted">MCP endpoint (tools: generate_image, get_job, run_workflow, list_jobs, cancel_job, list_models, server_status):</p>
+    <pre class="log" id="mcp"></pre>
+  </div>
+</main>
+<dialog id="dlg"><img id="big" alt=""></dialog>
+<script src="/flux/static/kit.js"></script>
+<script>
+let defaults = {steps: 4};
+const pending = new Set();
+$("#mcp").textContent = mcpHelp("flux");
+
+async function loadInfo() {
+  const i = await api("/flux/api/info");
+  defaults.steps = i.default_steps;
+  $("#variant").textContent = "FLUX.1-" + i.variant + " · " + i.checkpoint;
+  if (!$("#steps").value) $("#steps").value = i.default_steps;
+  $("#gwrap").hidden = !i.guidance;
+  if (!i.ready) { $("#status").textContent = "ComfyUI not ready: " + i.error; return; }
+  const d = (i.devices || [])[0];
+  $("#status").textContent = "queue " + i.queue.running + " running, " + i.queue.pending + " waiting" +
+    (d ? " · " + d.vram_free_gb + "/" + d.vram_total_gb + " GB free" : "");
+}
+
+function figure(job, img) {
+  const p = job.params || {};
+  const cap = el("figcaption", {}, el("span", {}, p.seed != null ? "seed " + p.seed : job.kind || ""),
+                 el("a", {href: img.url, download: img.filename}, "download"));
+  const im = el("img", {src: img.url, loading: "lazy", alt: p.prompt || "", title: p.prompt || "",
+                        onclick: () => { $("#big").src = img.url; $("#dlg").showModal(); }});
+  return el("figure", {}, im, cap);
+}
+
+function placeholder(job) {
+  const txt = job.state === "queued" ? "Waiting (#" + job.queue_position + " in queue)" :
+              job.state === "running" ? "Generating… the first image also loads the model (1–3 min)" :
+              job.state === "error" ? "Failed: " + job.error : job.state;
+  return el("figure", {}, el("div", {class: "ph"}, badge(job.state), el("div", {class: "small"}, txt),
+            el("div", {class: "small"}, (job.params || {}).prompt || "")));
+}
+
+async function loadJobs() {
+  const {jobs} = await api("/flux/api/jobs?limit=40");
+  const g = $("#gallery");
+  g.replaceChildren();
+  for (const j of jobs) {
+    if (j.state === "done") (j.images || []).forEach(img => g.append(figure(j, img)));
+    else if (j.state !== "unknown") g.append(placeholder(j));
+  }
+  if (!g.children.length) g.append(el("div", {class: "empty"}, "No images yet."));
+  return jobs.some(j => j.state === "queued" || j.state === "running");
+}
+
+$("#f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const [w, h] = $("#size").value.split("x").map(Number);
+  const seed = $("#seed").value.trim();
+  const body = {prompt: $("#prompt").value, width: w, height: h, steps: +$("#steps").value || defaults.steps,
+                batch_size: +$("#batch").value, guidance: +$("#guidance").value};
+  if (seed) body.seed = +seed;
+  $("#go").disabled = true;
+  try { await guard(() => api("/flux/api/generate", {json: body}), "Queued"); await loadJobs(); }
+  finally { $("#go").disabled = false; }
+});
+$("#prompt").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#f").requestSubmit(); });
+$("#dlg").addEventListener("click", () => $("#dlg").close());
+
+every(5000, loadInfo);
+every(3000, loadJobs);
+</script></body></html>
