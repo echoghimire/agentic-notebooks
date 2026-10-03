@@ -45,7 +45,7 @@ LLM_KEEP_ALIVE = os.environ.get("LLM_KEEP_ALIVE", "10m")
 DESCRIBE_PHOTOS = os.environ.get("DESCRIBE_PHOTOS", "1") == "1"
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "stabilityai/stable-diffusion-xl-base-1.0")
 IMAGE_STEPS = int(os.environ.get("IMAGE_STEPS", "25"))
-MUSIC_MODEL = os.environ.get("MUSIC_MODEL", "facebook/musicgen-small")
+MUSIC_MODEL = os.environ.get("MUSIC_MODEL", "synth")              # synth = built-in music, always monetisation-safe
 TTS_ENABLED = os.environ.get("TTS", "1") != "0"
 MEDIA_DEVICE = os.environ.get("MEDIA_DEVICE", "cuda:0")
 TTS_DEVICE = os.environ.get("TTS_DEVICE", "cpu")
@@ -137,6 +137,7 @@ def parse_options(b, base=None):
     o = dict(base or {"style": "auto", "length": 60, "voice": "auto", "language": "auto", "music": bool(MUSIC_MODEL),
                       "captions": True, "formats": list(FORMATS), "quality": DEFAULT_QUALITY, "review": False,
                       "motion": "auto", "map": True, "sfx": True, "brand": True, "post_to": [], "post_at": "",
+                      "music_level": "medium", "clip_sound": True, "footage": True,
                       "post_privacy": "public"})
     if b.get("style") not in (None, ""):
         if b["style"] not in STYLE_CHOICES:
@@ -164,11 +165,15 @@ def parse_options(b, base=None):
         o["post_to"] = [x if isinstance(x, dict) else {"id": str(x)} for x in pt][:20]
     if b.get("post_at") is not None:
         o["post_at"] = parse_when(b["post_at"])
+    if b.get("music_level"):
+        if b["music_level"] not in ("low", "medium", "high"):
+            raise ValueError("music_level must be low, medium or high")
+        o["music_level"] = b["music_level"]
     if b.get("post_privacy"):
         if b["post_privacy"] not in ("public", "unlisted", "private"):
             raise ValueError("post_privacy must be public, unlisted or private")
         o["post_privacy"] = b["post_privacy"]
-    for k in ("music", "captions", "review", "map", "sfx", "brand"):
+    for k in ("music", "captions", "review", "map", "sfx", "brand", "clip_sound", "footage"):
         if b.get(k) is not None and b.get(k) != "":
             o[k] = b[k] if isinstance(b[k], bool) else str(b[k]).lower() in ("1", "true", "yes", "on")
     if b.get("formats") is not None and b.get("formats") != "":
@@ -201,7 +206,73 @@ def create(source, opts):
     return enqueue(job)
 
 
+# ---------------------------------------------------------------------- pause / resume / delete / reorder
+STOP = {}                                               # job id -> "pause" | "delete", read at every step and while rendering
+
+
+class Stopped(Exception):
+    pass
+
+
+def control(jid, action, to=None):
+    """pause (keeps everything made so far; resume continues), resume, delete, or move a waiting job in the queue."""
+    job = load(jid)
+    st = job["state"]
+    if action == "pause":
+        with WAKE:
+            if jid in QUEUE:
+                QUEUE.remove(jid)
+                save(job, state="paused", step="paused before it started")
+                return public(job)
+        if st == "running":
+            STOP[jid] = "pause"
+            save(job, step="pausing…")
+            return public(job)
+        raise ValueError("only a waiting or running video can be paused (this one is %s)" % st)
+    if action == "resume":
+        if st not in ("paused", "error", "stopped"):
+            raise ValueError("only a paused or failed video can be resumed (this one is %s)" % st)
+        return public(enqueue(job))
+    if action == "delete":
+        if st == "running":
+            STOP[jid] = "delete"
+            save(job, step="stopping, then deleting…")
+            return {"deleting": jid}
+        return delete(jid)
+    if action == "move":
+        with WAKE:
+            if jid not in QUEUE:
+                raise ValueError("only a waiting video can be moved")
+            i = QUEUE.index(jid)
+            QUEUE.remove(jid)
+            j = {"top": 0, "up": max(0, i - 1), "down": i + 1, "bottom": len(QUEUE)}.get(to)
+            if j is None:
+                raise ValueError("to must be top, up, down or bottom")
+            QUEUE.insert(min(j, len(QUEUE)), jid)
+        return {"queue": list(QUEUE)}
+    raise ValueError("action must be pause, resume, delete or move")
+
+
+def check_stop(job):
+    if STOP.get(job["id"]):
+        raise Stopped(STOP[job["id"]])
+
+
+def kill_tree(p):
+    """Stops a renderer and its Chromium / ffmpeg children (they run in their own process group)."""
+    import signal
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+        p.wait(timeout=5)
+    except Exception:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except Exception:
+            pass
+
+
 def enqueue(job, **kw):
+    STOP.pop(job["id"], None)
     with WAKE:
         save(job, state="queued", step="waiting", error=None, **kw)
         if job["id"] not in QUEUE:
@@ -236,6 +307,7 @@ def auto_style(sb, src):
 
 
 def step(job, name, frac):
+    check_stop(job)
     save(job, state="running", step=name, progress=round(frac, 3))
     log.info("%s: %s", job["id"], name)
 
@@ -267,6 +339,32 @@ def map_for(place, style, d):
     if not all(os.path.exists(p) for p in paths.values()):
         paths = MO.place_map(geo[0], geo[1], out, "light" if style in V.LIGHT else "dark")
     return paths
+
+
+def footage_for(src, d, n):
+    """Downloads the source video once (720p at most, the first 20 minutes) and cuts n clips of up to 7 s, each
+    starting on a shot change and spread over the video, with their sound; credited to the channel / site."""
+    video = os.path.join(d, "source_video.mp4")
+    if not os.path.exists(video):
+        if src["kind"] == "youtube":
+            p = subprocess.run(["yt-dlp", "--no-playlist", "-f", "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*+ba/b",
+                                "--merge-output-format", "mp4", "--download-sections", "*0-1200", "--no-progress",
+                                "-o", video, src["video_url"]], capture_output=True, text=True, timeout=1800)
+            if p.returncode != 0 or not os.path.exists(video):
+                raise RuntimeError((p.stderr.strip().splitlines() or ["download failed"])[-1][:200])
+        else:
+            tmp = video + ".part"
+            _download(src["video_url"], tmp)
+            os.replace(tmp, video)
+    starts, secs = MO.pick_segments(video, n, 7.0)
+    out = []
+    for k, st in enumerate(starts):
+        e = MO.make_clip(video, os.path.join(d, "photos", "foot_%02d" % k), st, secs)
+        e.update(kind="video", credit=src.get("credit") or "", caption="", alt="footage at %d:%02d" % divmod(int(st), 60),
+                 url=src.get("url") or "", footage=True)
+        out.append(e)
+    log.info("cut %d clips from the source video", len(out))
+    return out
 
 
 def add_motion(job, scenes, visuals, motion, news, warnings):
@@ -340,11 +438,25 @@ def run_job(job):
         photos = M.fetch_photos(src.get("images") or [], os.path.join(d, "photos"), 14, referer=src.get("url"), log=log)
         for im in src.get("images") or []:
             im.pop("bytes", None)
+        foot = []
+        if src.get("video_url") and o.get("footage", True):
+            step(job, "downloading the video", 0.06)
+            try:
+                foot = footage_for(src, d, ST.LENGTHS.get(o["length"], (4, 5))[1])
+            except Stopped:
+                raise
+            except Exception as e:
+                log.error("footage failed\n%s", traceback.format_exc())
+                warnings.append("the video's own footage could not be used (%s); the thumbnail is used instead" % str(e)[:160])
         if photos and DESCRIBE_PHOTOS and LLM_MODEL:
             step(job, "looking at the photos", 0.07)
             photos = M.describe_photos(photos, OLLAMA_URL, LLM_MODEL, LLM_KEEP_ALIVE, log,
                                        topic=src["title"] + ". " + (src.get("description") or ""), keep=8)
         photos = photos[:8]
+        if foot:                                        # the video's own shots, described so each scene gets a fitting one
+            if DESCRIBE_PHOTOS and LLM_MODEL:
+                foot = M.describe_photos(foot, OLLAMA_URL, LLM_MODEL, LLM_KEEP_ALIVE, log, topic=src["title"], keep=len(foot))
+            photos = photos[:1] + foot + photos[1:]     # thumbnail first (headline), then the footage
         K.write_json(os.path.join(d, "source.json"), src)
         K.write_json(os.path.join(d, "photos.json"), photos)
         save(job, title=src["title"][:100])
@@ -392,8 +504,9 @@ def run_job(job):
             ph = photos[p]
             visuals[i] = {"path": ph["path"], "w": ph["w"], "h": ph["h"],     # links credit their own site
                           "credit": ph["credit"] if "credit" in ph else credit}
-            if ph.get("frames_dir"):                    # the user's own video clip
-                visuals[i].update(frames=MO.frames_in(ph["frames_dir"]), fps=ph.get("fps", 24))
+            if ph.get("frames_dir"):                    # a video clip: its frames, and its own sound if it has one
+                visuals[i].update(frames=MO.frames_in(ph["frames_dir"]), fps=ph.get("fps", 24),
+                                  audio=ph.get("audio") if ph.get("audio") and os.path.exists(ph["audio"]) else None)
     if IMAGE_MODEL and not news:
         for i, sc in enumerate(scenes):
             if i in visuals or sc["layout"] not in ("headline", "bullets", "photo", "outro") or not sc.get("image_prompt"):
@@ -471,7 +584,7 @@ def run_job(job):
         if not os.path.exists(music):
             step(job, "composing music", 0.64)
             try:
-                MEDIA.music(sb.get("music_prompt") or "light background music", music, 30)
+                MEDIA.music(sb.get("music_prompt") or "light background music", music, 30, tone=sb.get("tone") or "neutral")
             except Exception as e:
                 log.error("music failed\n%s", traceback.format_exc())
                 warnings.append("music failed: %s" % str(e)[:200])
@@ -483,9 +596,11 @@ def run_job(job):
     step(job, "mixing audio", 0.68)
     audio = os.path.join(d, "audio.wav")
     cuts = [ps["start"] for ps in plan_scenes[1:]] if o.get("sfx", True) else None
-    if narr or music or cuts:
+    ambience = [(ps["start"], ps["dur"], ps["photo"]["audio"], i in narr) for i, ps in enumerate(plan_scenes)
+                if o.get("clip_sound", True) and ps.get("photo") and ps["photo"].get("audio") and ps["photo"].get("frames")]
+    if narr or music or cuts or ambience:
         M.mix(total, [(ps["start"] + ps["narr_start"], narr[i][0]) for i, ps in enumerate(plan_scenes) if i in narr],
-              music, audio, sb.get("tone", "neutral"), cuts)
+              music, audio, sb.get("tone", "neutral"), cuts, o.get("music_level", "medium"), ambience)
     elif os.path.exists(audio):
         os.remove(audio)
     # 8. render
@@ -497,9 +612,14 @@ def run_job(job):
             if os.path.exists(os.path.join(d, f + ext)):
                 os.remove(os.path.join(d, f + ext))
     procs = {f: subprocess.Popen([sys.executable, os.path.join(HERE, "vs_render.py"), d, f], cwd=HERE,
-                                 stdout=open(os.path.join(d, "render_%s.log" % f), "w"), stderr=subprocess.STDOUT)
+                                 stdout=open(os.path.join(d, "render_%s.log" % f), "w"), stderr=subprocess.STDOUT,
+                                 start_new_session=True)
              for f in o["formats"]}
     while any(p.poll() is None for p in procs.values()):
+        if STOP.get(job["id"]):                         # pause / delete: stop the renderers now
+            for p in procs.values():
+                kill_tree(p)
+            check_stop(job)
         prog = {f: K.read_json(os.path.join(d, f, "progress.json"), {}) or {} for f in procs}
         frac = sum((p.get("frames", 0) / max(1, p.get("total_frames", 1))) for p in prog.values()) / len(procs)
         eta = max([p.get("eta", 0) or 0 for p in prog.values()] + [0])
@@ -540,6 +660,15 @@ def worker():
             continue
         try:
             run_job(job)
+            STOP.pop(jid, None)
+        except Stopped as e:
+            STOP.pop(jid, None)
+            if str(e) == "delete":
+                shutil.rmtree(os.path.join(JOBS, jid), ignore_errors=True)
+                log.info("%s stopped and deleted", jid)
+            else:
+                save(job, state="paused", step="paused: resume continues where it stopped")
+                log.info("%s paused", jid)
         except Exception as e:
             log.error("job %s failed\n%s", jid, traceback.format_exc())
             save(job, state="error", step="failed", error="%s: %s" % (type(e).__name__, str(e)[:800]))
@@ -680,24 +809,9 @@ def add_asset(jid, data_iter=None, url=None, name=""):
         if probe.returncode != 0 or "," not in probe.stdout:
             os.remove(tmp)
             raise ValueError("that file is not a picture or a video ffmpeg can read")
-        clip = os.path.join(pdir, "clip_%02d.mp4" % k)
-        fdir = os.path.join(pdir, "clip_%02d_frames" % k)
-        os.makedirs(fdir, exist_ok=True)
-        sz = "scale='if(gt(iw,ih),min(1600,iw),-2)':'if(gt(iw,ih),-2,min(1600,ih))'"
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", tmp, "-t", "10", "-an", "-vf", sz, "-c:v", "libx264", "-preset",
-                        "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", clip], check=True, timeout=600)
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", clip, "-vf", "fps=24", "-q:v", "3",
-                        os.path.join(fdir, "f%03d.jpg")], check=True, timeout=600)
+        entry = MO.make_clip(tmp, os.path.join(pdir, "clip_%02d" % k), 0, 10)
         os.remove(tmp)
-        frames = MO.frames_in(fdir)
-        if not frames:
-            raise ValueError("could not read frames from that video")
-        from PIL import Image
-        poster = os.path.join(pdir, "clip_%02d.jpg" % k)
-        shutil.copy(frames[min(len(frames) - 1, 12)], poster)
-        w, hh = Image.open(poster).size
-        entry = {"path": poster, "w": w, "h": hh, "caption": "", "alt": name, "url": source, "kind": "video",
-                 "clip": clip, "frames_dir": fdir, "fps": 24, "credit": credit, "needs_credit": bool(url) and not credit}
+        entry.update(caption="", alt=name, url=source, kind="video", credit=credit, needs_credit=bool(url) and not credit)
     photos.append(entry)
     K.write_json(os.path.join(d, "photos.json"), photos)
     return {"index": k, "kind": entry["kind"], "photos": public(load(jid), full=True)["photos"]}
@@ -896,7 +1010,7 @@ def rerender(jid, b):
 def delete(jid):
     job = load(jid)
     if job["state"] == "running":
-        raise ValueError("the job is running; wait for it to finish")
+        return control(jid, "delete")
     with LOCK:
         if jid in QUEUE:
             QUEUE.remove(jid)
@@ -913,7 +1027,8 @@ def info():
             "postiz": PZ.configured(), "brand": brand_public(),
             "motion": {"choices": list(MOTION_CHOICES), "parallax": DEPTH_ON, "cutout": CUTOUT_ON, "maps": MAPS_ON,
                        "ai": I2V_MODEL or None},
-            "queue": {s: sum(1 for j in jobs if j["state"] == s) for s in ("queued", "running", "review", "done", "error")}}
+            "queue": dict({s: sum(1 for j in jobs if j["state"] == s) for s in ("queued", "running", "review", "done", "error", "paused")},
+                          order=list(QUEUE))}
 
 
 # ====================================================================== app
@@ -1005,6 +1120,10 @@ def build_app():
             return set_logo(url=req.arg("url"))
         return set_logo(data=req.body())
 
+    @app.route("POST", r"/api/jobs/(?P<j>[\w-]+)/(?P<a>pause|resume|move)")
+    def _control(req):
+        return control(req.params["j"], req.params["a"], req.json().get("to"))
+
     @app.route("POST", r"/api/jobs/(?P<j>[\w-]+)/delete")
     def _delete(req):
         return delete(req.params["j"])
@@ -1025,6 +1144,9 @@ def build_app():
         "map": {"type": "boolean", "default": True, "description": "map fly-in to the story's place (news, 30 s+)"},
         "sfx": {"type": "boolean", "default": True, "description": "soft transition sounds"},
         "brand": {"type": "boolean", "default": True, "description": "the channel brand (set_brand) on the corner and outro"},
+        "music_level": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"},
+        "clip_sound": {"type": "boolean", "default": True, "description": "keep video clips' own sound under the narration"},
+        "footage": {"type": "boolean", "default": True, "description": "for a video link as the source, cut its real footage into the scenes"},
         "post_to": {"type": "array", "description": "Postiz channel ids to post the finished video to automatically"},
         "post_at": {"type": "string", "description": "schedule the auto-post (ISO date-time, no zone = UTC); empty = now"},
         "post_privacy": {"type": "string", "enum": ["public", "unlisted", "private"], "default": "public"},
@@ -1080,6 +1202,21 @@ def build_app():
     def t_asset(job_id, url, credit=None):
         out = add_asset(job_id, url=url)
         return set_photo(job_id, out["index"], credit) if credit is not None else out
+
+    @app.tool("pause_job", "Pause a waiting or running video at once (renderers are stopped). Everything made so far is "
+              "kept; resume_job continues from there.", {"job_id": {"type": "string"}}, ["job_id"])
+    def t_pause(job_id):
+        return control(job_id, "pause")
+
+    @app.tool("resume_job", "Put a paused (or failed) video back in the queue; finished steps and scenes are reused.",
+              {"job_id": {"type": "string"}}, ["job_id"])
+    def t_resume(job_id):
+        return control(job_id, "resume")
+
+    @app.tool("move_job", "Move a waiting video in the queue.", {"job_id": {"type": "string"},
+              "to": {"type": "string", "enum": ["top", "up", "down", "bottom"]}}, ["job_id", "to"])
+    def t_move(job_id, to):
+        return control(job_id, "move", to)
 
     @app.tool("list_channels", "Social channels connected in Postiz (needs the POSTIZ_API_KEY secret): id, name, "
               "identifier (youtube, tiktok, instagram, facebook, x, linkedin...) and the format posted there by default.", {}, [])

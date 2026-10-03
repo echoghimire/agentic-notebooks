@@ -324,7 +324,7 @@ function seqLayer(cv, ims) {
   cv.width = w; cv.height = h;
   const c = cv.getContext('2d'), fps = +cv.dataset.fps || 24, n = ims.length;
   return t => {                                     /* ping-pong so a 3 s clip fills a longer scene smoothly */
-    let k = Math.floor(t * fps * 0.8) % Math.max(1, 2 * n - 2); if (k >= n) k = 2 * n - 2 - k;
+    let k = Math.floor(t * fps) % Math.max(1, 2 * n - 2); if (k >= n) k = 2 * n - 2 - k;   /* real speed, like its sound */
     const im = ims[Math.max(0, Math.min(n - 1, k))], ia = im.naturalWidth / im.naturalHeight, ca = w / h;
     const sw = ca > ia ? im.naturalWidth : im.naturalHeight * ca, sh = ca > ia ? im.naturalWidth / ca : im.naturalHeight;
     c.drawImage(im, (im.naturalWidth - sw) / 2, (im.naturalHeight - sh) / 2, sw, sh, 0, 0, w, h);

@@ -178,9 +178,17 @@ def _vtt_text(vtt):
     return " ".join(lines)
 
 
+# Video pages yt-dlp can read besides YouTube
+VIDEO_PAGE = re.compile(r"^https?://(?:www\.|m\.)?(vimeo\.com/|facebook\.com/.+/videos|fb\.watch/|tiktok\.com/|"
+                        r"(x|twitter)\.com/.+/status|instagram\.com/(reel|reels|p)/|dailymotion\.com/video)", re.I)
+VIDEO_EXT = re.compile(r"\.(mp4|mov|webm|mkv|m4v)(\?|$)", re.I)
+
+
 def youtube(url):
+    """YouTube and other video pages: title, channel, description and subtitles (no download here; the studio
+    downloads the footage itself when it cuts it into scenes). video_url marks the source as footage."""
     if not shutil.which("yt-dlp"):
-        raise ValueError("YouTube links need yt-dlp (installed by the notebook's install cell)")
+        raise ValueError("video links need yt-dlp (installed by the notebook's install cell)")
     with tempfile.TemporaryDirectory() as d:
         p = subprocess.run(["yt-dlp", "--skip-download", "--write-info-json", "--write-auto-subs", "--write-subs",
                             "--sub-langs", "ne.*,ne,hi.*,en.*,en", "--sub-format", "vtt", "--no-playlist", "-o",
@@ -194,15 +202,37 @@ def youtube(url):
             if f.endswith(".vtt"):
                 subs = _vtt_text(open(os.path.join(d, f), encoding="utf-8", errors="replace").read())
                 break
-    facts = {"channel": info.get("channel") or info.get("uploader"), "site": "YouTube", "views": _human(info.get("view_count")),
+    site = "YouTube" if YT.match(url) else (info.get("extractor_key") or info.get("extractor") or "video").replace(":", " ")
+    facts = {"channel": info.get("channel") or info.get("uploader"), "site": site, "views": _human(info.get("view_count")),
              "duration": "%d:%02d" % divmod(int(info.get("duration") or 0), 60), "date": info.get("upload_date")}
     text = "Video: %s\nChannel: %s\n\nDescription:\n%s\n\nTranscript:\n%s" % (
         info.get("title"), facts["channel"], info.get("description") or "", subs or "(no subtitles)")
     thumbs = sorted((t for t in info.get("thumbnails") or [] if t.get("width")), key=lambda t: -t["width"])
     images = [{"url": (thumbs[0]["url"] if thumbs else info.get("thumbnail")), "alt": info.get("title"), "caption": "", "score": 4}]
-    return {"kind": "youtube", "url": url, "title": info.get("title") or "YouTube video",
+    return {"kind": "youtube", "url": info.get("webpage_url") or url, "title": info.get("title") or "Video",
             "description": (info.get("description") or "")[:300], "text": _clip(text), "facts": facts,
-            "images": [i for i in images if i["url"]], "language": detect_language(text, info.get("language"))}
+            "images": [i for i in images if i["url"]], "language": detect_language(text, info.get("language")),
+            "video_url": info.get("webpage_url") or url, "seconds": int(info.get("duration") or 0),
+            "credit": " · ".join(x for x in (facts["channel"], site) if x)}
+
+
+def video_file(url):
+    """A direct link to a video file: no transcript, so the script is written from what the footage shows."""
+    name = urllib.parse.unquote(os.path.basename(urllib.parse.urlparse(url).path)) or "video"
+    title = re.sub(r"[_-]+", " ", os.path.splitext(name)[0]).strip() or "Video"
+    host = (urllib.parse.urlparse(url).hostname or "").replace("www.", "")
+    return {"kind": "video", "url": url, "title": title[:120], "description": "", "facts": {"site": host},
+            "text": "Video file: %s\nFrom: %s\n(No transcript: describe what the footage shows.)" % (title, host),
+            "images": [], "language": "en", "video_url": url, "credit": host}
+
+
+def _content_type(url):
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.headers.get("Content-Type", "")
+    except Exception:
+        return ""
 
 
 # ---------------------------------------------------------------------- web pages
@@ -487,11 +517,15 @@ def fetch_source(text):
         url, extra = first, text[len(first):].strip()
         if GH.match(url):
             src = github(url)
-        elif YT.match(url):
+        elif YT.match(url) or VIDEO_PAGE.match(url):
             src = youtube(url)
+        elif VIDEO_EXT.search(url) or _content_type(url).lower().startswith("video/"):
+            src = video_file(url)
         else:
             src = webpage(url)
         src["instructions"] = extra
+        if src["kind"] == "video" and extra:            # no transcript: the instructions tell the language
+            src["language"] = detect_language(extra)
         return src
     return {"kind": "prompt", "url": None, "title": text[:80], "description": "", "text": _clip(text),
             "facts": {}, "images": [], "language": detect_language(text), "instructions": ""}

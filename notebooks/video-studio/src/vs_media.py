@@ -21,7 +21,10 @@ STYLE_SUFFIX = {
 }
 NEGATIVE = "text, letters, words, watermark, logo, signature, caption, ui, blurry, lowres, deformed, extra fingers"
 OUT_RATE = 44100
-MUSIC_LEVELS = {"tragic": (0.10, 0.035), "serious": (0.14, 0.05)}     # (music level, level under the voice)
+# Music is first brought to one loudness (RMS 0.2), then: (level alone, level under the voice). The voice stays
+# about 12 dB above the music while it speaks, a broadcast-style balance.
+MUSIC_LEVELS = {"low": (0.38, 0.12), "medium": (0.55, 0.18), "high": (0.75, 0.26)}
+TONE_SCALE = {"tragic": 0.75, "serious": 0.85}
 
 
 def read_wav(path):
@@ -121,17 +124,21 @@ class Media:
         return len(data) / 24000.0
 
     # ------------------------------------------------------------------ music
-    def music(self, prompt, path, seconds=30):
+    def music(self, prompt, path, seconds=30, tone="neutral"):
         name = self.music_model
+        if name.lower() == "synth":
+            return synth_music(path, tone, seconds)
         if name.lower().startswith("ace"):
             try:
                 return self._ace(prompt, path, seconds)
             except Exception as e:
-                name = os.environ.get("MUSIC_FALLBACK", "")
+                name = os.environ.get("MUSIC_FALLBACK", "synth")
+                if self.log:
+                    self.log.warning("ACE-Step failed (%s); using %s", e, name or "no music")
                 if not name:
                     raise
-                if self.log:
-                    self.log.warning("ACE-Step failed (%s); using %s", e, name)
+                if name == "synth":
+                    return synth_music(path, tone, seconds)
         with self.lock:
             if "mg" not in self.m:
                 import torch
@@ -176,6 +183,76 @@ class Media:
             pass
 
 
+# ---------------------------------------------------------------------- built-in music (always commercial-safe)
+_PROG = {   # chord roots (semitones from A) and qualities, bpm, pulse
+    "tragic": ([(0, "m"), (8, "M"), (3, "M"), (10, "M")], 58, False),       # Am F C G, slow, no beat
+    "serious": ([(0, "m"), (5, "m"), (8, "M"), (7, "M")], 72, False),       # Am Dm F E
+    "neutral": ([(3, "M7"), (0, "m7"), (8, "M7"), (10, "6")], 88, True),     # Cmaj7 Am7 Fmaj7 G6
+    "upbeat": ([(3, "M"), (10, "M"), (0, "m"), (8, "M")], 112, True),       # C G Am F
+    "inspiring": ([(8, "M"), (3, "M"), (10, "M"), (0, "m")], 96, True),     # F C G Am
+}
+_CHORD = {"m": (0, 3, 7), "M": (0, 4, 7), "m7": (0, 3, 7, 10), "M7": (0, 4, 7, 11), "6": (0, 4, 7, 9)}
+
+
+def synth_music(path, tone="neutral", seconds=30, rate=OUT_RATE, seed=3):
+    """A soft, loopable bed made in code: warm pads, a sub bass, a plucked arpeggio and (for lighter tones) a gentle
+    pulse, with a simple reverb. Nothing sampled, so it is free to use in monetised videos."""
+    rng = np.random.default_rng(seed)
+    prog, bpm, pulse = _PROG.get(tone, _PROG["neutral"])
+    beat = 60.0 / bpm
+    bar = 4 * beat
+    n = int(seconds * rate)
+    t = np.arange(n, dtype=np.float32) / rate
+    out = np.zeros(n, np.float32)
+    hz = lambda semi, octave: 220.0 * 2 ** ((semi + 12 * octave) / 12.0)
+    bars = int(np.ceil(seconds / bar))
+    for b in range(bars):
+        root, q = prog[b % len(prog)]
+        s0, s1 = int(b * bar * rate), min(n, int((b + 1) * bar * rate + 0.6 * rate))
+        if s0 >= n:
+            break
+        tt = t[s0:s1] - t[s0]
+        env = np.minimum(1, tt / 0.8) * np.exp(-np.maximum(0, tt - bar) * 3)          # slow swell, overlapping tails
+        for iv in _CHORD[q]:                            # pad: detuned soft saws (a few harmonics)
+            f = hz(root + iv, -1)
+            for det in (-0.12, 0.12):
+                ph = 2 * np.pi * f * (1 + det / 100) * tt
+                out[s0:s1] += 0.045 * env * (np.sin(ph) + 0.35 * np.sin(2 * ph) + 0.12 * np.sin(3 * ph))
+        out[s0:s1] += 0.10 * env * np.sin(2 * np.pi * hz(root, -2) * tt)               # sub bass
+        notes = [root + iv for iv in _CHORD[q]] + [root + 12]
+        step = beat / (2 if pulse else 1)
+        for k in range(int(bar / step)):                # plucked arpeggio
+            a0 = s0 + int(k * step * rate)
+            if a0 >= n:
+                break
+            a1 = min(n, a0 + int(1.2 * rate))
+            ta = t[a0:a1] - t[a0]
+            f = hz(notes[(k * 2 + b) % len(notes)], 1)
+            out[a0:a1] += (0.05 if pulse else 0.035) * np.exp(-ta * 4.5) * (np.sin(2 * np.pi * f * ta) + 0.2 * np.sin(4 * np.pi * f * ta))
+        if pulse:                                       # soft kick + shaker
+            for k in range(4):
+                k0 = s0 + int(k * beat * rate)
+                if k0 >= n:
+                    break
+                k1 = min(n, k0 + int(0.35 * rate))
+                tk = t[k0:k1] - t[k0]
+                out[k0:k1] += 0.16 * np.sin(2 * np.pi * (55 + 60 * np.exp(-tk * 30)) * tk) * np.exp(-tk * 9)
+                h0 = k0 + int(beat / 2 * rate)
+                if h0 < n:
+                    h1 = min(n, h0 + int(0.06 * rate))
+                    out[h0:h1] += 0.03 * rng.standard_normal(h1 - h0).astype(np.float32) * np.exp(-(t[h0:h1] - t[h0]) * 60)
+    ir_n = int(1.8 * rate)                              # reverb: decaying noise impulse response (FFT convolution)
+    ir = rng.standard_normal(ir_n).astype(np.float32) * np.exp(-np.arange(ir_n) / (0.45 * rate))
+    ir /= np.abs(ir).sum() / 6
+    m = 1 << int(np.ceil(np.log2(n + ir_n)))
+    wet = np.fft.irfft(np.fft.rfft(out, m) * np.fft.rfft(ir, m), m)[:n].astype(np.float32)
+    out = 0.75 * out + 0.25 * wet / (np.abs(wet).max() + 1e-6) * np.abs(out).max()
+    fade = int(1.5 * rate)
+    out[-fade:] *= np.linspace(1, 0, fade)
+    write_wav(path, out / (np.abs(out).max() + 1e-6) * 0.9, rate)
+    return path
+
+
 def tempo(src, dst, factor):
     """Speeds speech up by factor without changing its pitch (ffmpeg atempo); returns the new duration."""
     import subprocess
@@ -184,7 +261,7 @@ def tempo(src, dst, factor):
     return duration(dst)
 
 
-def mix(total, narrations, music_path, out_path, tone="neutral", cuts=None):
+def mix(total, narrations, music_path, out_path, tone="neutral", cuts=None, level="medium", ambience=None):
     """narrations: [(start_seconds, wav_path)]. Music loops with crossfades and dips under the voice.
     cuts: scene-change times for soft transition whooshes (None = no sound effects)."""
     n = int(total * OUT_RATE)
@@ -195,11 +272,36 @@ def mix(total, narrations, music_path, out_path, tone="neutral", cuts=None):
         i = int(start * OUT_RATE)
         x = x[:max(0, n - i)]
         voice[i:i + len(x)] += x
-    music_gain, duck_gain = MUSIC_LEVELS.get(tone, (0.22, 0.07))
-    out = voice.copy()
+    music_gain, duck_gain = (x * TONE_SCALE.get(tone, 1.0) for x in MUSIC_LEVELS.get(level, MUSIC_LEVELS["medium"]))
+    # clips' own sound: natural sound under the narration, full when nobody speaks in that scene
+    amb = np.zeros(n, np.float32)
+    for start, dur, p, spoken in ambience or []:
+        try:
+            x, r = read_wav(p)
+        except Exception:
+            continue
+        x = resample(x, r, OUT_RATE)[:int(dur * OUT_RATE)]
+        rms = float(np.sqrt(np.mean(x ** 2))) if len(x) else 0
+        if rms < 1e-4:
+            continue
+        x = x * (0.15 / rms) * (0.35 if spoken else 0.9)
+        f = min(len(x) // 2, int(0.3 * OUT_RATE))
+        if f:
+            x[:f] *= np.linspace(0, 1, f)
+            x[-f:] *= np.linspace(1, 0, f)
+        i = int(start * OUT_RATE)
+        x = x[:max(0, n - i)]
+        amb[i:i + len(x)] += x
+    if amb.any():
+        venv = np.convolve(np.abs(voice), np.ones(int(0.3 * OUT_RATE), np.float32) / int(0.3 * OUT_RATE), mode="same")
+        amb *= 1 - 0.55 * np.clip(venv / 0.02, 0, 1)    # and it steps back further while the voice is speaking
+    out = voice + amb
     if music_path and os.path.exists(music_path):
         m, r = read_wav(music_path)
         m = resample(m, r, OUT_RATE)
+        rms = float(np.sqrt(np.mean(m ** 2))) if len(m) else 0
+        if rms > 1e-4:                                  # one loudness for every track, whatever the model made
+            m = np.clip(m * (0.2 / rms), -0.98, 0.98)
         xf = min(int(1.5 * OUT_RATE), len(m) // 4)
         if len(m) > 2 * xf:
             loop = m.copy()
@@ -210,7 +312,7 @@ def mix(total, narrations, music_path, out_path, tone="neutral", cuts=None):
             m = loop[:n]
         else:
             m = np.resize(m, n)
-        env = np.abs(voice)
+        env = np.abs(voice) + 0.5 * np.abs(amb)        # music also gives way to a clip's own sound
         win = int(0.35 * OUT_RATE)
         env = np.convolve(env, np.ones(win, np.float32) / win, mode="same")
         talking = np.clip(env / 0.02, 0, 1)
@@ -225,8 +327,8 @@ def mix(total, narrations, music_path, out_path, tone="neutral", cuts=None):
         env = np.convolve(np.abs(voice), np.ones(int(0.25 * OUT_RATE), np.float32) / int(0.25 * OUT_RATE), mode="same")
         out = out + fx * (1 - 0.85 * np.clip(env / 0.02, 0, 1))     # sounds step back whenever someone speaks
     peak = np.abs(out).max()
-    if peak > 0.97:
-        out = out * (0.97 / peak)
+    if peak > 1e-4:
+        out = out * (0.95 / peak)                       # full level: platforms play quiet uploads quietly
     write_wav(out_path, out, OUT_RATE)
     return out_path
 
@@ -335,12 +437,12 @@ def describe_photos(photos, ollama_url, model, keep_alive="10m", log=None, topic
         except (TypeError, ValueError):
             rel = 5.0
         p["description"] = str(v.get("description") or "").strip()[:240]
-        p["kind"], p["relevance"] = kind, rel
-        if kind in DROP_KINDS or rel < 3:
+        p["seen_as"], p["relevance"] = kind, rel         # what the vision model saw ("kind" says where it came from)
+        if (kind in DROP_KINDS or rel < 3) and p.get("kind") != "video":   # footage is never screened out
             if log:
                 log.info("photo dropped (%s, relevance %s): %s", kind or "?", rel, str(p.get("url"))[:120])
             continue
         kept.append(p)
         if len(kept) >= keep:
             break
-    return sorted(kept, key=lambda p: p.get("kind") == "stock graphic")   # real photos lead (the headline uses the first)
+    return sorted(kept, key=lambda p: p.get("seen_as") == "stock graphic")   # real photos lead (the headline uses the first)
