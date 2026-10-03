@@ -95,7 +95,13 @@ print("System packages (ffmpeg, espeak-ng, Noto fonts incl. Devanagari)...")
 sh("apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y ffmpeg espeak-ng zstd "
    "fonts-noto-core fonts-noto-mono fonts-dejavu-core > /dev/null")
 print("Python packages...")
-pip_install("playwright", "yt-dlp", "pymupdf", "soundfile", "diffusers", "accelerate", "kokoro>=0.9", "trafilatura", "piper-tts")
+pip_install("playwright", "yt-dlp", "pymupdf", "soundfile", "diffusers", "accelerate", "kokoro>=0.9")
+# Extras: the app works without them (built-in article reader; Indic Parler or captions for Nepali)
+for extra, why in (("trafilatura", "better article extraction"), ("piper-tts", "the light Nepali voice")):
+    try:
+        pip_install(extra)
+    except RuntimeError:
+        print("  %s did not install (%s is skipped); the error is above." % (extra, why))
 print("Headless Chromium...")
 sh(sys.executable + " -m playwright install --with-deps chromium > /dev/null")
 if not shutil.which("ollama"):

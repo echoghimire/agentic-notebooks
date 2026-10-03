@@ -50,7 +50,9 @@ def parler_ok():
 
 
 def piper_ok(model="ne_NP-google-medium"):
-    return os.path.exists(os.path.join(PIPER_DIR, model + ".onnx"))
+    import importlib.util
+    return (importlib.util.find_spec("piper") is not None or bool(shutil.which("piper"))) and \
+        os.path.exists(os.path.join(PIPER_DIR, model + ".onnx"))
 
 
 def available(voice):
