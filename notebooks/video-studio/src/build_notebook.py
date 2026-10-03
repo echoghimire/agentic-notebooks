@@ -95,7 +95,16 @@ print("System packages (ffmpeg, espeak-ng, Noto fonts incl. Devanagari)...")
 sh("apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y ffmpeg espeak-ng zstd "
    "fonts-noto-core fonts-noto-mono fonts-dejavu-core > /dev/null")
 print("Python packages...")
-pip_install("playwright", "yt-dlp", "pymupdf", "soundfile", "diffusers", "accelerate", "kokoro>=0.9")
+pip_install("playwright", "yt-dlp", "pymupdf", "soundfile", "diffusers", "accelerate")
+if NARRATION:
+    try:
+        # Kokoro and misaki declare Python < 3.13 but run on 3.13 (Kaggle's current Python): install their
+        # dependencies from wheels, then the two packages themselves without the version check
+        pip_install("--only-binary=:all:", "huggingface-hub", "loguru", "transformers", "addict", "regex",
+                    "espeakng-loader", "num2words", "phonemizer-fork", "spacy", "spacy-curated-transformers")
+        pip_install("--no-deps", "--ignore-requires-python", "kokoro>=0.9.4", "misaki[en]>=0.9.4")
+    except RuntimeError:
+        print("  Kokoro did not install (English voices are skipped); the error is above.")
 # Extras: the app works without them (built-in article reader; Indic Parler or captions for Nepali)
 for extra, why in (("trafilatura", "better article extraction"), ("piper-tts", "the light Nepali voice")):
     try:
