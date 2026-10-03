@@ -64,6 +64,28 @@ Link credits come from the page: a news site's own name ("Photo: Kathmandu Post"
 - **Automatically:** under *More options*, pick channels in *Post automatically when ready*; the video is posted (or scheduled) as soon as it renders.
 - TikTok posts declare the video as made with AI. Postiz cloud allows about 30 API calls an hour, so each format is uploaded once per video and reused.
 
+## Video links: as the source or inside a scene
+
+- **A video as the source** (YouTube, Vimeo, Facebook, X, TikTok, Instagram, Dailymotion, or a link to an `.mp4`/`.mov`/`.webm` file):
+  - The studio downloads it (720p at most, the first 20 minutes) and cuts **real footage** into the scenes: one clip per scene, spread over the video, each starting on a shot change. Clips keep their sound and are credited on screen ("Video: channel · Youtube").
+  - The script comes from the video's subtitles and description, or, for a file with neither, from what the footage shows. Add a line after the link to steer it, e.g. "… make a Nepali news short".
+  - It is re-edited into your formats (a 9:16 reel and/or 16:9) with your brand, voice-over and music. Untick *Video links: use their footage* to use only the thumbnail.
+- **A clip inside a scene** (🔗 Link or ＋ Upload in the script editor): the first 10 s play in that scene.
+- **Sound:** a clip's own sound plays quietly under the narration and fully when nobody speaks in that scene; the music gives way to it. Untick *Keep clips' own sound* to mute clips.
+- **Rights:** the credit says where footage came from; it is not permission. Re-posting other people's videos, especially on monetised channels, can break copyright and platform rules, and is likely to trigger Content ID. Use your own footage, or footage you have permission for.
+
+## Queue: pause, resume, delete
+
+The ☰ list and each video's header have **❚❚ Pause** (stops at once, even mid-render), **▶ Resume** (continues: the script, voice, music and every finished scene are reused, so only the rest is rendered), **↑ / ↓** for waiting videos, and **Delete** (stops a running video first). The same is available as `POST /api/jobs/<id>/pause|resume|move` and the MCP tools `pause_job`, `resume_job`, `move_job`.
+
+## Music
+
+**Every video is safe to monetise by default.** `MUSIC_MODEL = "ace-step"` (Apache 2.0), and when ACE-Step is not installed or fails, the studio's **own music made in code** (pads, bass, a plucked arpeggio and a soft beat, chosen by the story's tone; instant, nothing sampled). `MUSIC_MODEL = "synth"` uses only the built-in music. MusicGen is still available but its weights are non-commercial.
+
+Music is brought to one loudness first, then mixed at *Music volume* low / **medium** / high; it sits about 12 dB under the voice while someone speaks and comes up between sentences. The final mix is brought to full level.
+
+**Let me edit the script first** is ticked by default on the page (your choice is remembered): every video stops after the script so you can check the text, pictures and clips before rendering.
+
 ## Narration
 
 Numbers, decimals and percentages in Nepali are read as words (५ जना → पाँच जना, २०८२ → दुई हजार बयासी, ३.५% → तीन दशमलव पाँच प्रतिशत). Scripts are shortened by whole sentences only. Speech is sped up by at most 8% to fit the length, and sad news is read slowly. Transition sounds step back while someone speaks.
@@ -73,7 +95,8 @@ Numbers, decimals and percentages in Nepali are read as words (५ जना →
 ```
 POST /api/jobs {"source", "style": "auto"|"broadcast"|"documentary"|..., "length": 15|30|60|90, "language": "auto"|"ne"|"en"|...,
                 "voice": "auto"|"ne_amrita"|"ne_piper"|"af_heart"|..., "music", "captions", "formats": ["landscape", "reel"],
-                "quality": "1080p"|"720p", "motion": "auto"|"parallax"|"ai"|"none", "map": true, "sfx": true, "brand": true,
+                "quality": "1080p"|"720p", "motion": "auto"|"parallax"|"ai"|"none", "map": true, "sfx": true, "brand": true, "music_level": "medium",
+                "clip_sound": true, "footage": true,
                 "post_to": [channel ids], "post_at": "2026-10-04T18:30+05:45", "post_privacy": "public", "review": false}
 GET  /api/jobs                              list
 GET  /api/jobs/<id>?wait=60                 state, progress, files, storyboard, photos
@@ -86,14 +109,15 @@ GET  /api/jobs/<id>/caption                    suggested social caption
 POST /api/jobs/<id>/post {"channels": [id | {id, format}], "caption", "when", "privacy"}   post or schedule via Postiz
 GET  /api/postiz/channels                      connected Postiz channels
 GET|POST /api/brand  {name, handle, color, corner, outro};  POST /api/brand/logo (raw picture, ?url= or ?remove=1)
-POST /api/jobs/<id>/delete
+POST /api/jobs/<id>/pause | resume | move {"to": "top"|"up"|"down"|"bottom"}
+POST /api/jobs/<id>/delete                      (stops a running video first)
 GET  /api/jobs/<id>/files/landscape.mp4 | reel.mp4 | landscape.jpg | reel.jpg   (?download=1 to save)
 ```
 
 ## MCP tools
 
-`make_video(source, style?, length?, language?, voice?, music?, captions?, formats?, quality?, motion?, map?, sfx?, brand?, post_to?, post_at?, post_privacy?, review?, wait_seconds?)`, `get_job(job_id, wait_seconds?)`, `get_storyboard(job_id)`, `update_storyboard(job_id, storyboard, render?)` (scene `photo`: index, -1 auto, -2 none), `add_asset(job_id, url, credit?)`, `set_photo_credit(job_id, index, credit)`, `get_brand`, `set_brand(name?, handle?, color?, logo_url?, corner?, outro?)`, `list_channels`, `post_video(job_id, channels, caption?, when?, privacy?)`, `render(job_id, rewrite?, ...options)`, `list_jobs`, `delete_job`, `list_options`.
+`make_video(source, style?, length?, language?, voice?, music?, music_level?, captions?, formats?, quality?, motion?, map?, sfx?, clip_sound?, footage?, brand?, post_to?, post_at?, post_privacy?, review?, wait_seconds?)`, `get_job(job_id, wait_seconds?)`, `get_storyboard(job_id)`, `update_storyboard(job_id, storyboard, render?)` (scene `photo`: index, -1 auto, -2 none), `add_asset(job_id, url, credit?)`, `set_photo_credit(job_id, index, credit)`, `get_brand`, `set_brand(name?, handle?, color?, logo_url?, corner?, outro?)`, `list_channels`, `post_video(job_id, channels, caption?, when?, privacy?)`, `pause_job`, `resume_job`, `move_job(job_id, to)`, `render(job_id, rewrite?, ...options)`, `list_jobs`, `delete_job`, `list_options`.
 
 ## Licences and responsibility
 
-Gemma 3: Gemma Terms of Use. Indic Parler-TTS, Svara-TTS, Kokoro, Depth Anything V2 Small, ACE-Step, Wan 2.2: Apache 2.0. Piper, BiRefNet: MIT. MapLibre: BSD-3; map data © OpenStreetMap contributors (ODbL), credited on screen. LTX-Video: Lightricks open-weights licence (check before commercial use). SDXL: CreativeML OpenRAIL++. **MusicGen weights: CC-BY-NC 4.0 (non-commercial)**; use `MUSIC_MODEL = "ace-step"` or `""` for monetised videos. Online voices: Microsoft service, not open source. **Text and photos from a link belong to their publisher.** The video credits the site, but make sure you are allowed to reuse them.
+Gemma 3: Gemma Terms of Use. Indic Parler-TTS, Svara-TTS, Kokoro, Depth Anything V2 Small, ACE-Step, Wan 2.2: Apache 2.0. Piper, BiRefNet: MIT. MapLibre: BSD-3; map data © OpenStreetMap contributors (ODbL), credited on screen. LTX-Video: Lightricks open-weights licence (check before commercial use). SDXL: CreativeML OpenRAIL++. Music is monetisation-safe by default (ACE-Step or the built-in music); MusicGen weights are CC-BY-NC 4.0 (non-commercial). Online voices: Microsoft service, not open source. **Text and photos from a link belong to their publisher.** The video credits the site, but make sure you are allowed to reuse them.

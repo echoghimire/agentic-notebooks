@@ -26,6 +26,7 @@ body.open .scrim{opacity:1;pointer-events:auto}body.open .drawer{transform:none}
 .item:hover{background:var(--panel2)}.item.on{background:color-mix(in srgb,var(--accent) 14%,transparent)}
 .item img,.item .ph{width:72px;height:41px;border-radius:6px;object-fit:cover;background:var(--panel2);flex:none}
 .item .t{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qbtns{display:flex;flex-direction:column;gap:4px;flex:none}.qb{padding:2px 8px;font-size:12px;min-width:30px}
 .item .m{font-size:11.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
 /* create */
 main{max-width:1100px}
@@ -138,8 +139,11 @@ details.sb>summary{cursor:pointer;font-weight:700;font-size:15px;margin:14px 0;p
         <label class="inline"><input type="checkbox" id="map" checked> Map of the place (news)</label>
         <label class="inline"><input type="checkbox" id="sfx" checked> Transition sounds</label>
         <label class="inline"><input type="checkbox" id="music" checked> Background music</label>
+        <label>Music volume<select id="musiclevel"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></label>
+        <label class="inline"><input type="checkbox" id="clipsound" checked> Keep clips' own sound</label>
+        <label class="inline"><input type="checkbox" id="footage" checked> Video links: use their footage</label>
         <label class="inline"><input type="checkbox" id="captions" checked> Captions</label>
-        <label class="inline"><input type="checkbox" id="review"> Let me edit the script first</label>
+        <label class="inline"><input type="checkbox" id="review" checked> Let me edit the script first</label>
         <label class="inline"><input type="checkbox" id="brandon" checked> My brand on the video</label>
       </div>
       <div id="autopost" hidden style="margin-top:12px">
@@ -190,12 +194,16 @@ $("#brandbtn").onclick = () => { $("#brandcard").hidden = false; open(false); lo
 $("#agentsbtn").onclick = () => { $("#agents").hidden = false; open(false); $("#agents").scrollIntoView({behavior: "smooth"}); };
 $$("#len button").forEach(b => b.onclick = () => { length = +b.dataset.v; $$("#len button").forEach(x => x.classList.toggle("on", x === b)); });
 ["fl", "fr"].forEach(id => $("#" + id).onclick = e => e.currentTarget.classList.toggle("on"));
+try { const r = localStorage.getItem("vs-review"); if (r !== null) $("#review").checked = r === "1"; } catch (e) {}
+$("#review").addEventListener("change", () => { try { localStorage.setItem("vs-review", $("#review").checked ? "1" : "0"); } catch (e) {} });
+$("#status").style.cursor = "pointer"; $("#status").onclick = () => open(true);
 $("#source").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#go").click(); });
 
 function opts() {
   return {style, length, language: $("#language").value, voice: $("#voice").value, quality: $("#quality").value,
           music: $("#music").checked, captions: $("#captions").checked, review: $("#review").checked,
           motion: $("#motion").value, map: $("#map").checked, sfx: $("#sfx").checked, brand: $("#brandon").checked,
+          music_level: $("#musiclevel").value, clip_sound: $("#clipsound").checked, footage: $("#footage").checked,
           post_to: $$("#apchans .chan.on").map(c => ({id: c.dataset.id, format: c.dataset.fmt})),
           post_at: $("#apwhen").value ? new Date($("#apwhen").value).toISOString() : "", post_privacy: $("#appriv").value,
           formats: [$("#fl").classList.contains("on") && "landscape", $("#fr").classList.contains("on") && "reel"].filter(Boolean)};
@@ -286,11 +294,30 @@ async function loadJobs() {
   const {jobs} = await api("/api/jobs");
   $("#jobs").replaceChildren(...jobs.map(j => el("div", {class: "item" + (j.id === cur ? " on" : ""), onclick: () => { if (cur !== j.id) { cur = j.id; editing = false; sbOpen = false; viewKey = ""; } open(false); loadJobs(); show(); }},
     j.files["landscape.jpg"] || j.files["reel.jpg"] ? el("img", {src: j.files["landscape.jpg"] || j.files["reel.jpg"], alt: ""}) : el("div", {class: "ph"}),
-    el("div", {style: {minWidth: 0, flex: 1}}, el("div", {class: "t"}, j.title), el("div", {class: "m"}, badge(j.state), fmtAgo(j.created)),
-      j.state === "running" ? progressBar(j.progress) : null))));
+    el("div", {style: {minWidth: 0, flex: 1}}, el("div", {class: "t"}, j.title), el("div", {class: "m"}, badge(j.state), fmtAgo(j.created),
+      queuePos(j)), j.state === "running" ? progressBar(j.progress) : null),
+    el("div", {class: "qbtns"}, ...queueButtons(j, true)))));
   if (!jobs.length) $("#jobs").append(el("div", {class: "empty"}, "No videos yet."));
   const j = jobs.find(x => x.id === cur);
   if (j && (["running", "queued"].includes(j.state) || keyOf(j) !== viewKey)) show();
+}
+
+// ---------------------------------------------------------------- queue: pause, resume, reorder
+function ctl(j, action, to) {
+  return guard(async () => { await api("/api/jobs/" + j.id + "/" + action, {json: to ? {to} : {}}); viewKey = ""; await loadJobs(); show(); },
+               {pause: "Pausing… (finished parts are kept)", resume: "Back in the queue", move: "Moved"}[action]);
+}
+function queuePos(j) {
+  const order = (INFO && INFO.queue && INFO.queue.order) || [], i = order.indexOf(j.id);
+  return j.state === "queued" && i >= 0 ? el("span", {}, "· #" + (i + 1) + " in line") : null;
+}
+function queueButtons(j, small) {
+  const b = (label, title, fn, cls) => el("button", {class: (cls || "") + (small ? " qb" : ""), title, onclick: e => { e.stopPropagation(); fn(); }}, label);
+  const out = [];
+  if (j.state === "running" || j.state === "queued") out.push(b(small ? "❚❚" : "❚❚ Pause", "Pause now; resume later continues where it stopped", () => ctl(j, "pause")));
+  if (j.state === "queued") { out.push(b("↑", "Move up the queue", () => ctl(j, "move", "up"))); out.push(b("↓", "Move down the queue", () => ctl(j, "move", "down"))); }
+  if (["paused", "error"].includes(j.state)) out.push(b(small ? "▶" : "▶ Resume", "Continue: finished steps and scenes are reused", () => ctl(j, "resume"), "primary"));
+  return out;
 }
 
 function stepIndex(j) {
@@ -411,8 +438,10 @@ async function show() {
   parts.push(el("div", {class: "jobhead"}, el("h2", {}, j.title), badge(j.state),
     j.duration ? el("span", {class: "small muted"}, [fmtDur(j.duration), j.language, j.style, j.voice, j.options.quality].filter(Boolean).join(" · ")) : null,
     el("span", {style: {marginLeft: "auto"}, class: "row"},
-      ["done", "error", "review"].includes(j.state) ? el("button", {onclick: async () => { await guard(() => api("/api/jobs/" + j.id + "/render", {json: {rewrite: true, review: true}}), "Writing a new script…"); show(); }}, "↻ New script") : null,
-      el("button", {class: "danger", onclick: async () => { if (!confirm("Delete this video?")) return; await guard(() => api("/api/jobs/" + j.id + "/delete", {json: {}})); cur = null; $("#detail").replaceChildren(); loadJobs(); }}, "Delete"))));
+      ...queueButtons(j, false),
+      ["done", "error", "review", "paused"].includes(j.state) ? el("button", {onclick: async () => { await guard(() => api("/api/jobs/" + j.id + "/render", {json: {rewrite: true, review: true}}), "Writing a new script…"); show(); }}, "↻ New script") : null,
+      el("button", {class: "danger", onclick: async () => { if (!confirm(j.state === "running" ? "Stop this video now and delete it?" : "Delete this video?")) return;
+        await guard(() => api("/api/jobs/" + j.id + "/delete", {json: {}}), j.state === "running" ? "Stopping and deleting…" : "Deleted"); cur = null; $("#detail").replaceChildren(); loadJobs(); }}, "Delete"))));
   if (j.state === "queued" || j.state === "running") parts.push(progressPanel(j));
   if (j.error) parts.push(el("pre", {class: "log"}, j.error));
   (j.warnings || []).forEach(w => parts.push(el("div", {class: "small muted"}, "Note: " + w)));

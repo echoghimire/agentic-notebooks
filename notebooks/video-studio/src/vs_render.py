@@ -5,6 +5,7 @@ Reads <job_dir>/plan.json (scenes with durations, images, captions; written by v
 HTML file per scene, seeks every frame in headless Chromium, pipes JPEG screenshots into ffmpeg, joins the
 scenes and muxes <job_dir>/audio.wav. Progress goes to <job_dir>/<fmt>/progress.json.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -44,11 +45,25 @@ def photo_for(sc, w, h):
     return dict(ph, fit=fit)
 
 
+def _read(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _mtimes(sc):
+    """Pictures can change on disk under the same name (a new depth map, an edited photo): include their times."""
+    ph = sc.get("photo") or {}
+    files = [ph.get(k) for k in ("path", "depth", "cut")] + list(ph.get("frames") or [])[:1] + list((sc.get("map") or {}).values())
+    return ",".join("%d" % os.path.getmtime(f) for f in files if isinstance(f, str) and os.path.exists(f))
+
+
 def main(job_dir, fmt):
     plan = json.load(open(os.path.join(job_dir, "plan.json"), encoding="utf-8"))
     out_dir = os.path.join(job_dir, fmt)
-    shutil.rmtree(out_dir, ignore_errors=True)
-    os.makedirs(out_dir)
+    os.makedirs(out_dir, exist_ok=True)                 # finished scenes are kept: a resumed render skips them
     fps = int(plan.get("fps", 30))
     w, h = V.SIZES[fmt]
     if plan.get("quality") == "720p":
@@ -74,10 +89,19 @@ def main(job_dir, fmt):
             path = os.path.join(out_dir, "scene_%02d.html" % i)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(doc)
-            page.goto("file://" + os.path.abspath(path))
-            page.wait_for_function("window.__ready === true", timeout=60000)
             n = max(1, round(sc["dur"] * fps))
             mp4 = os.path.join(out_dir, "scene_%02d.mp4" % i)
+            key = hashlib.sha1(("%s|%d|%dx%d|%s" % (doc, fps, w, h, _mtimes(sc))).encode()).hexdigest()
+            if _read(mp4 + ".key") == key and os.path.exists(mp4):
+                parts.append(mp4)                       # rendered before (paused, or a re-render): reuse it
+                done += n
+                progress(out_dir, state="rendering", scene=i + 1, scenes=len(scenes), frames=done, total_frames=total_frames, eta=0)
+                continue
+            for stale in (mp4, mp4 + ".key"):
+                if os.path.exists(stale):
+                    os.remove(stale)
+            page.goto("file://" + os.path.abspath(path))
+            page.wait_for_function("window.__ready === true", timeout=60000)
             enc = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "image2pipe",
                                     "-framerate", str(fps), "-c:v", "mjpeg", "-i", "-", "-c:v", "libx264",
                                     "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p", "-r", str(fps), mp4],
@@ -98,6 +122,8 @@ def main(job_dir, fmt):
                 err = enc.stderr.read().decode("utf-8", "replace")
                 if enc.wait() != 0:
                     raise RuntimeError("ffmpeg could not encode scene %d: %s" % (i + 1, err[-800:]))
+            with open(mp4 + ".key", "w") as f:              # written last: a scene cut short is never reused
+                f.write(key)
             parts.append(mp4)
         browser.close()
     progress(out_dir, state="joining", frames=done, total_frames=total_frames)
@@ -114,8 +140,12 @@ def main(job_dir, fmt):
     else:
         ffmpeg("-i", silent, "-c", "copy", "-movflags", "+faststart", final + ".tmp.mp4")
     os.replace(final + ".tmp.mp4", final)
-    for p in parts + [silent, lst]:
+    for p in (silent, lst):
         os.remove(p)
+    keep = {os.path.basename(p) for p in parts} | {os.path.basename(p) + ".key" for p in parts}
+    for f in os.listdir(out_dir):                       # scenes from an older version of the script
+        if f.startswith("scene_") and f.endswith((".mp4", ".key")) and f not in keep:
+            os.remove(os.path.join(out_dir, f))
     if os.path.exists(os.path.join(out_dir, "poster.jpg")):
         shutil.copy(os.path.join(out_dir, "poster.jpg"), os.path.join(job_dir, "%s.jpg" % fmt))
     progress(out_dir, state="done", frames=done, total_frames=total_frames, seconds=round(time.time() - t0),

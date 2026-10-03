@@ -262,6 +262,77 @@ def sfx_track(total, cuts, rate=44100, tone="neutral"):
     return out
 
 
+# ---------------------------------------------------------------------- video clips (uploads, links, source footage)
+def make_clip(src, base, start=0.0, seconds=10.0, fps=24):
+    """Cuts src[start:start+seconds] into base.mp4 (max 1600 px), 24 fps frames in base_frames/, its sound in base.wav
+    (when it has any) and a poster base.jpg. Returns a photos.json entry (path, w, h, clip, frames_dir, fps, audio)."""
+    import subprocess
+    from PIL import Image
+    clip, fdir, wav, poster = base + ".mp4", base + "_frames", base + ".wav", base + ".jpg"
+    os.makedirs(fdir, exist_ok=True)
+    for f in os.listdir(fdir):
+        os.remove(os.path.join(fdir, f))
+    sz = "scale='if(gt(iw,ih),min(1600,iw),-2)':'if(gt(iw,ih),-2,min(1600,ih))'"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "%.2f" % start, "-i", src, "-t", "%.2f" % seconds, "-vf", sz,
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
+                    clip], check=True, capture_output=True, timeout=600)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", clip, "-vf", "fps=%d" % fps, "-q:v", "3", os.path.join(fdir, "f%03d.jpg")],
+                   check=True, capture_output=True, timeout=600)
+    frames = frames_in(fdir)
+    if not frames:
+        raise ValueError("could not read frames from that video")
+    a = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", clip, "-vn", "-ac", "1", "-ar", "44100", "-sample_fmt", "s16", wav],
+                       capture_output=True, timeout=300)
+    has_audio = a.returncode == 0 and os.path.exists(wav) and os.path.getsize(wav) > 4096
+    if not has_audio and os.path.exists(wav):
+        os.remove(wav)
+    import shutil
+    shutil.copy(frames[min(len(frames) - 1, 12)], poster)
+    w, h = Image.open(poster).size
+    return {"path": poster, "w": w, "h": h, "clip": clip, "frames_dir": fdir, "fps": fps, "audio": wav if has_audio else None}
+
+
+def shot_starts(video, max_seconds=None):
+    """Times (s) where the picture changes shot (ffmpeg scene detection), for picking distinct clips."""
+    import subprocess
+    cmd = ["ffmpeg", "-v", "info", "-hide_banner", "-i", video]
+    if max_seconds:
+        cmd[3:3] = ["-t", str(max_seconds)]
+    cmd += ["-vf", "select='gt(scene,0.32)',showinfo,scale=160:-2", "-an", "-f", "null", "-"]
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    import re
+    return [float(x) for x in re.findall(r"pts_time:([\d.]+)", p.stderr)]
+
+
+def video_seconds(video):
+    import subprocess
+    p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", video],
+                       capture_output=True, text=True)
+    try:
+        return float(p.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
+def pick_segments(video, n, seconds=7.0):
+    """n non-overlapping clip starts: the video (minus the first 4% of intros and the last 6% of end screens) is cut
+    into n equal windows and each clip starts on a shot change inside its window when there is one. Clips get
+    shorter when the video is too short for n of them. Returns (starts, clip_seconds)."""
+    total = video_seconds(video)
+    if total <= 0 or n <= 0:
+        return [], seconds
+    lo, hi = total * 0.04, total * 0.94
+    win = (hi - lo) / n
+    seconds = max(1.5, min(seconds, win))
+    cuts = shot_starts(video)
+    out = []
+    for k in range(n):
+        a, b = lo + k * win, lo + (k + 1) * win
+        inside = [c + 0.15 for c in cuts if a <= c + 0.15 and c + 0.15 + seconds <= b + 0.01]
+        out.append(round(inside[0] if inside else a + (win - seconds) / 2, 2))
+    return out, round(seconds, 2)
+
+
 # ---------------------------------------------------------------------- helpers
 def frames_in(d):
     return sorted(os.path.join(d, f) for f in os.listdir(d) if f.endswith(".jpg")) if os.path.isdir(d) else []

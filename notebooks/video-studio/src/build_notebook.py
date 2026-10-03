@@ -43,7 +43,7 @@ Inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) and [Hyp
 4. **Run All.** First run: about 12–15 minutes (installs + ~20 GB of models). Then a 60-second video takes roughly 5–10 minutes on T4 x2; 720p renders about twice as fast.
 
 ### Licences and responsibility
-Gemma 3: Gemma Terms of Use. Indic Parler-TTS, Svara-TTS, Kokoro, Depth Anything V2 Small, ACE-Step, Wan 2.2: Apache 2.0. BiRefNet, Piper: MIT. LTX-Video: Lightricks' open-weights licence (check it before commercial use). Map data © OpenStreetMap contributors (ODbL), tiles by OpenFreeMap. SDXL: CreativeML OpenRAIL++. **MusicGen weights are CC-BY-NC 4.0 (non-commercial)**: for monetised videos set `MUSIC_MODEL = "ace-step"` (Apache 2.0) or `""`. The online voices (`ONLINE_VOICES = True`) send the narration text to Microsoft and are not open source. **Photos and text from a link belong to their publisher**: the video credits the site, but make sure you may reuse them (for example your own site, or with permission).
+Gemma 3: Gemma Terms of Use. Indic Parler-TTS, Svara-TTS, Kokoro, Depth Anything V2 Small, ACE-Step, Wan 2.2: Apache 2.0. BiRefNet, Piper: MIT. LTX-Video: Lightricks' open-weights licence (check it before commercial use). Map data © OpenStreetMap contributors (ODbL), tiles by OpenFreeMap. SDXL: CreativeML OpenRAIL++. Music is monetisation-safe by default (ACE-Step, Apache 2.0, with the studio's own synthesised music as fallback); **MusicGen weights are CC-BY-NC 4.0 (non-commercial)**, so only pick `facebook/musicgen-small` for videos you don't monetise. The online voices (`ONLINE_VOICES = True`) send the narration text to Microsoft and are not open source. **Photos and text from a link belong to their publisher**: the video credits the site, but make sure you may reuse them (for example your own site, or with permission).
 
 Videos are saved in `/kaggle/working/video_studio/jobs/` and disappear when the session ends: download what you want to keep. Logs: `/kaggle/working/logs/`.
 """)
@@ -53,8 +53,9 @@ nb.code("""
 LLM_MODEL = "gemma3:12b"                                    # writes Nepali well and can look at photos; "gemma3:4b" is faster
 IMAGE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"    # only for non-news topics without photos; "" = never draw
 IMAGE_STEPS = 25
-MUSIC_MODEL = "facebook/musicgen-small"                     # "ace-step" = Apache 2.0 music (commercial OK, slower, own virtualenv);
-                                                            # "" = no music (MusicGen weights are non-commercial)
+MUSIC_MODEL = "ace-step"                                    # monetisation-safe: ACE-Step (Apache 2.0), and if it fails, the
+                                                            # built-in music made in code ("synth": instant, also safe).
+                                                            # "facebook/musicgen-small" = non-commercial weights; "" = no music
 NARRATION = True
 INDIC_VOICES = True                                         # Indic Parler-TTS for Nepali / Hindi (~4 GB, own virtualenv)
 SVARA_VOICES = True                                         # Svara-TTS: male + female Nepali / Hindi voices (~7 GB)
@@ -198,16 +199,15 @@ if MUSIC_MODEL.lower().startswith("ace") and not os.path.exists(ACE_ENV + "/bin/
            "pytorch_lightning soundfile librosa spacy" % ACE_ENV)
         snapshot_download("ACE-Step/ACE-Step-v1-3.5B", local_dir=ACE_CKPT)
     except Exception as e:
-        print("  ACE-Step did not install (%s); using MusicGen for music." % e)
+        print("  ACE-Step did not install (%s); using the built-in music (also monetisation-safe)." % e)
         shutil.rmtree(ACE_ENV, ignore_errors=True)
-        MUSIC_MODEL = "facebook/musicgen-small"
 
 print("Image, music and English voice models (first time only)...")
 if IMAGE_MODEL:
     snapshot_download(IMAGE_MODEL, allow_patterns=["*.json", "*.txt", "*fp16.safetensors", "tokenizer*/*"])
     if "xl" in IMAGE_MODEL.lower():
         snapshot_download("madebyollin/sdxl-vae-fp16-fix", allow_patterns=["*.json", "*.safetensors"])
-if MUSIC_MODEL and not MUSIC_MODEL.lower().startswith("ace"):
+if MUSIC_MODEL and not MUSIC_MODEL.lower().startswith(("ace", "synth")):
     snapshot_download(MUSIC_MODEL, ignore_patterns=["*.bin", "*.msgpack", "*.h5"])
 if NARRATION:
     snapshot_download("hexgrad/Kokoro-82M", allow_patterns=["*.json", "*.pth", "voices/*.pt"])
