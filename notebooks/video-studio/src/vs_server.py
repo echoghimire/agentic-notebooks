@@ -20,10 +20,12 @@ import sys
 import threading
 import time
 import traceback
+import urllib.request
 import uuid
 
 import studio_http as K
 import vs_media as M
+import vs_motion as MO
 import vs_scenes as V
 import vs_source as SRC
 import vs_story as ST
@@ -43,6 +45,12 @@ TTS_ENABLED = os.environ.get("TTS", "1") != "0"
 MEDIA_DEVICE = os.environ.get("MEDIA_DEVICE", "cuda:0")
 TTS_DEVICE = os.environ.get("TTS_DEVICE", "cpu")
 UNLOAD_AFTER = os.environ.get("UNLOAD_AFTER", "0") == "1"
+DEPTH_ON = os.environ.get("DEPTH_PARALLAX", "1") == "1"            # 2.5D parallax of photos (Depth Anything V2 Small)
+CUTOUT_ON = os.environ.get("SUBJECT_CUTOUT", "1") == "1"           # subject lift-off in headline scenes (BiRefNet)
+MAPS_ON = os.environ.get("LOCATION_MAPS", "1") == "1"              # map fly-in for news with a place (OpenStreetMap)
+I2V_MODEL = os.environ.get("I2V_MODEL", "")                        # "ltx" / "wan" / a repo id; "" = off
+I2V_MAX_CLIPS = int(os.environ.get("I2V_MAX_CLIPS", "3"))
+MOTION_CHOICES = ("auto", "parallax", "ai", "none")
 DEFAULT_QUALITY = os.environ.get("RENDER_QUALITY", "1080p")
 FPS = int(os.environ.get("RENDER_FPS", "30"))
 FORMATS = ("landscape", "reel")
@@ -55,6 +63,7 @@ LOCK = threading.RLock()
 WAKE = threading.Condition(LOCK)
 QUEUE = []
 MEDIA = M.Media(IMAGE_MODEL, IMAGE_STEPS, MEDIA_DEVICE, MUSIC_MODEL, MEDIA_DEVICE, TTS_DEVICE, log)
+MOTION = MO.Motion(MEDIA_DEVICE, log)
 
 
 # ====================================================================== jobs on disk
@@ -109,7 +118,9 @@ def public(job, full=False):
             out["storyboard"] = sb
         photos = K.read_json(os.path.join(d, "photos.json"), []) or []
         out["photos"] = [{"index": i, "url": "/api/jobs/%s/files/photos/%s" % (job["id"], os.path.basename(p["path"])),
-                          "caption": p.get("caption"), "description": p.get("description")} for i, p in enumerate(photos)]
+                          "caption": p.get("caption"), "description": p.get("description"), "kind": p.get("kind") or "link",
+                          "video": "/api/jobs/%s/files/photos/%s" % (job["id"], os.path.basename(p["clip"])) if p.get("clip") else None}
+                         for i, p in enumerate(photos)]
         out["images"] = {str(i): "/api/jobs/%s/files/%s/%s" % (job["id"], os.path.basename(os.path.dirname(p)), os.path.basename(p))
                          for i, p in (job.get("scene_images") or {}).items() if p}
     return out
@@ -117,7 +128,8 @@ def public(job, full=False):
 
 def parse_options(b, base=None):
     o = dict(base or {"style": "auto", "length": 60, "voice": "auto", "language": "auto", "music": bool(MUSIC_MODEL),
-                      "captions": True, "formats": list(FORMATS), "quality": DEFAULT_QUALITY, "review": False})
+                      "captions": True, "formats": list(FORMATS), "quality": DEFAULT_QUALITY, "review": False,
+                      "motion": "auto", "map": True, "sfx": True})
     if b.get("style") not in (None, ""):
         if b["style"] not in STYLE_CHOICES:
             raise ValueError("style must be one of " + ", ".join(STYLE_CHOICES))
@@ -135,7 +147,11 @@ def parse_options(b, base=None):
         if b["language"] not in LANG_CHOICES:
             raise ValueError("language must be one of " + ", ".join(LANG_CHOICES))
         o["language"] = b["language"]
-    for k in ("music", "captions", "review"):
+    if b.get("motion"):
+        if b["motion"] not in MOTION_CHOICES:
+            raise ValueError("motion must be one of " + ", ".join(MOTION_CHOICES))
+        o["motion"] = b["motion"]
+    for k in ("music", "captions", "review", "map", "sfx"):
         if b.get(k) is not None and b.get(k) != "":
             o[k] = b[k] if isinstance(b[k], bool) else str(b[k]).lower() in ("1", "true", "yes", "on")
     if b.get("formats") is not None and b.get("formats") != "":
@@ -209,11 +225,11 @@ def step(job, name, frac):
 
 def assign_photos(scenes, n_photos):
     """Scenes without a photo get unused ones (no photo twice in a row); headline and outro reuse the lead photo."""
-    used = {sc["photo"] for sc in scenes if sc.get("photo", -1) >= 0}
+    used = {sc["photo"] for sc in scenes if sc.get("photo", -1) >= 0}           # -2 = the user chose no picture
     free = [i for i in range(n_photos) if i not in used]
     prev = None
     for k, sc in enumerate(scenes):
-        if sc.get("photo", -1) < 0 and n_photos and sc["layout"] in ("photo", "bullets", "quote", "headline", "outro"):
+        if sc.get("photo", -1) == -1 and n_photos and sc["layout"] in ("photo", "bullets", "quote", "headline", "outro"):
             if sc["layout"] in ("headline", "outro"):
                 sc["photo"] = 0
             elif free:
@@ -222,6 +238,74 @@ def assign_photos(scenes, n_photos):
                 sc["photo"] = (prev + 1) % n_photos if prev is not None else 0
         prev = sc.get("photo") if sc.get("photo", -1) >= 0 else prev
     return scenes
+
+
+def map_for(place, style, d):
+    """Map snapshots for a place name (cached per job); None when the place cannot be found."""
+    geo = MO.geocode(place, os.path.join(WORK, "geo"))
+    if not geo:
+        return None
+    out = os.path.join(d, "map_" + h(place, style))
+    paths = {k: os.path.join(out, "map_%s.jpg" % k) for k, _ in MO.MAP_ZOOMS}
+    if not all(os.path.exists(p) for p in paths.values()):
+        paths = MO.place_map(geo[0], geo[1], out, "light" if style in V.LIGHT else "dark")
+    return paths
+
+
+def add_motion(job, scenes, visuals, motion, news, warnings):
+    """Adds depth maps, subject cut-outs or AI clips to the scenes' pictures (cached next to each picture)."""
+    noted = set()
+
+    def note(msg):
+        if msg not in noted:
+            noted.add(msg)
+            warnings.append(msg)
+    use_ai = motion == "ai" and bool(I2V_MODEL) and not news
+    if motion == "ai" and news:
+        note("AI motion is never used on news (it would invent movement); real photos got 2.5D parallax instead")
+    elif motion == "ai" and not I2V_MODEL:
+        note("AI motion needs I2V_MODEL in the notebook settings; used 2.5D parallax")
+    order = sorted(visuals)
+    clips, broken = 0, set()                            # an effect whose model failed once is not retried
+    for k, i in enumerate(order):
+        v, lay = visuals[i], scenes[i]["layout"]
+        base = v["path"]
+        if v.get("frames"):
+            continue                                    # already moving (the user's video clip)
+        step(job, "adding motion %d/%d" % (k + 1, len(order)), 0.2 + 0.2 * k / max(1, len(order)))
+        try:
+            kind = "ai"
+            if use_ai and "ai" not in broken and clips < I2V_MAX_CLIPS and lay in ("headline", "photo", "bullets"):
+                fdir = base + ".i2v_" + h(I2V_MODEL)
+                if not MO.frames_in(fdir):
+                    prompt = (scenes[i].get("image_prompt") or scenes[i].get("heading") or "") + \
+                        ", subtle natural motion, slow cinematic camera move, stable, high quality"
+                    MOTION.animate(base, prompt, fdir, I2V_MODEL)
+                frames = MO.frames_in(fdir)
+                if frames:
+                    v.update(frames=frames, fps=24)
+                    clips += 1
+                    continue
+            kind = "cut"
+            if CUTOUT_ON and "cut" not in broken and motion in ("auto", "ai") and lay == "headline":
+                cut, none = base + ".cut.png", base + ".nocut"
+                if not os.path.exists(cut) and not os.path.exists(none):
+                    if not MOTION.cutout(base, cut)[0]:
+                        open(none, "w").close()            # no clear subject: remember, use parallax
+                if os.path.exists(cut):
+                    v["cut"] = cut
+                    continue
+            kind = "depth"
+            if DEPTH_ON and "depth" not in broken:
+                dp = base + ".depth.png"
+                if not os.path.exists(dp):
+                    MOTION.depth(base, dp)
+                v["depth"] = dp
+        except Exception as e:
+            broken.add(kind)
+            log.warning("motion (%s) for scene %d failed: %s\n%s", kind, i + 1, e, traceback.format_exc())
+            note("some motion effects were skipped (%s)" % str(e)[:160])
+    MOTION.unload()
 
 
 def run_job(job):
@@ -268,6 +352,19 @@ def run_job(job):
         save(job, state="review", step="review the script, then render", progress=0.15, warnings=warnings)
         return
     scenes = assign_photos([dict(sc) for sc in sb["scenes"]], len(photos))
+    news = sb.get("category") == "news" or sb.get("tone") in ("tragic", "serious")
+    # 2b. where it happened: a map fly-in after the headline (news with a real place, 30 s and longer)
+    if o.get("map", True) and MAPS_ON and news and sb.get("place") and o["length"] > 15 and len(scenes) > 1:
+        try:
+            step(job, "drawing the map of %s" % sb["place"], 0.12)
+            mp = map_for(sb["place"], style, d)
+            if mp:
+                scenes.insert(1, {"layout": "map", "heading": sb.get("place_local") or "", "kicker": "", "bullets": [],
+                                  "narration": "", "photo": -2, "code": "", "quote": "", "stats": [], "inserted": True,
+                                  "map": dict(mp, label=sb.get("place_local") or sb["place"].split(",")[0])})
+        except Exception as e:
+            log.warning("map skipped: %s", e)
+            warnings.append("map skipped (%s)" % str(e)[:120])
     n = len(scenes)
     credit = (src.get("facts") or {}).get("site") or ""
     # 3. visuals: source photos first; generated images only for non-news topics
@@ -276,8 +373,10 @@ def run_job(job):
         p = sc.get("photo", -1)
         if 0 <= p < len(photos):
             ph = photos[p]
-            visuals[i] = {"path": ph["path"], "w": ph["w"], "h": ph["h"], "credit": credit}
-    news = sb.get("category") == "news" or sb.get("tone") in ("tragic", "serious")
+            visuals[i] = {"path": ph["path"], "w": ph["w"], "h": ph["h"],
+                          "credit": "" if ph.get("kind") in ("upload", "video") else credit}
+            if ph.get("frames_dir"):                    # the user's own video clip
+                visuals[i].update(frames=MO.frames_in(ph["frames_dir"]), fps=ph.get("fps", 24))
     if IMAGE_MODEL and not news:
         for i, sc in enumerate(scenes):
             if i in visuals or sc["layout"] not in ("headline", "bullets", "photo", "outro") or not sc.get("image_prompt"):
@@ -292,8 +391,12 @@ def run_job(job):
                     warnings.append("image for scene %d failed: %s" % (i + 1, str(e)[:200]))
                     continue
             visuals[i] = {"path": path, "w": 1024, "h": 1024, "credit": "AI"}
-    if 0 in visuals and n - 1 not in visuals:
-        visuals[n - 1] = visuals[0]
+    if 0 in visuals and n - 1 not in visuals and scenes[n - 1].get("photo", -1) != ST.NO_PHOTO:
+        visuals[n - 1] = dict(visuals[0])
+    # 3b. motion: real photos move in 2.5D (depth parallax) or lift their subject; AI clips only off the news
+    motion = o.get("motion", "auto")
+    if motion != "none":
+        add_motion(job, scenes, visuals, motion, news, warnings)
     # 4. narration
     narr, voice = {}, None
     if TTS_ENABLED and o["voice"] != "none":
@@ -318,6 +421,9 @@ def run_job(job):
                     narr = {}
                     break
             narr[i] = (path, M.duration(path))
+    if voice and TTS.VOICES.get(voice, {}).get("engine") == "svara":
+        TTS.svara_unload()                              # free the GPU for music and rendering
+        MEDIA.unload("-")
     spoken, room = sum(x[1] for x in narr.values()), 0.8 * o["length"]
     if narr and spoken > room * 1.04:                   # too long for the chosen length: speak a little faster
         f = min(1.25, spoken / room)
@@ -359,9 +465,10 @@ def run_job(job):
     # 7. audio mix
     step(job, "mixing audio", 0.68)
     audio = os.path.join(d, "audio.wav")
-    if narr or music:
+    cuts = [ps["start"] for ps in plan_scenes[1:]] if o.get("sfx", True) else None
+    if narr or music or cuts:
         M.mix(total, [(ps["start"] + ps["narr_start"], narr[i][0]) for i, ps in enumerate(plan_scenes) if i in narr],
-              music, audio, sb.get("tone", "neutral"))
+              music, audio, sb.get("tone", "neutral"), cuts)
     elif os.path.exists(audio):
         os.remove(audio)
     # 8. render
@@ -390,7 +497,8 @@ def run_job(job):
     if errors:
         raise RuntimeError("rendering failed; " + " | ".join(errors))
     save(job, state="done", step="done", progress=1.0, duration=total, warnings=warnings, seconds=round(time.time() - t0),
-         scene_images={str(i): v["path"] for i, v in visuals.items()},
+         scene_images={str(k): visuals[i]["path"] for k, i in enumerate(i for i, sc in enumerate(scenes) if not sc.get("inserted"))
+                       if i in visuals},
          render={f: K.read_json(os.path.join(d, f, "progress.json"), {}) for f in procs})
     log.info("%s done in %ds", job["id"], time.time() - t0)
 
@@ -419,6 +527,72 @@ def wait(jid, seconds):
         if job["state"] not in ("queued", "running") or time.time() - t >= max(0, min(MAX_WAIT, float(seconds or 0))):
             return job
         time.sleep(1.5)
+
+
+ASSET_LIMIT = 200 << 20
+
+
+def add_asset(jid, data_iter=None, url=None, name=""):
+    """Adds the user's own picture or video clip to a job's photos; returns its index. Videos keep up to 10 s,
+    cut into 24 fps frames that the scene plays exactly; pictures are checked and lightly edited like link photos."""
+    d = jdir(jid)
+    job = load(jid)
+    if job["state"] in ("queued", "running"):
+        raise ValueError("the job is busy (%s); wait for it to finish" % job["state"])
+    pdir = os.path.join(d, "photos")
+    os.makedirs(pdir, exist_ok=True)
+    tmp = os.path.join(pdir, "upload_%s.tmp" % uuid.uuid4().hex[:8])
+    with open(tmp, "wb") as f:
+        if url:
+            req = urllib.request.Request(url, headers={"User-Agent": SRC.UA})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                while True:
+                    chunk = r.read(1 << 20)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    if f.tell() > ASSET_LIMIT:
+                        raise ValueError("that file is larger than 200 MB")
+        else:
+            for chunk in data_iter:
+                f.write(chunk)
+    photos = K.read_json(os.path.join(d, "photos.json"), []) or []
+    k = len(photos)
+    try:
+        from PIL import Image, ImageOps
+        im = ImageOps.exif_transpose(Image.open(tmp)).convert("RGB")
+        im.thumbnail((2400, 2400))
+        path = os.path.join(pdir, "upload_%02d.jpg" % k)
+        im.save(path, "JPEG", quality=92)
+        entry = {"path": path, "w": im.size[0], "h": im.size[1], "caption": "", "alt": name, "url": url or "", "kind": "upload"}
+        os.remove(tmp)
+    except Exception:
+        probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                                "-of", "csv=p=0", tmp], capture_output=True, text=True)
+        if probe.returncode != 0 or "," not in probe.stdout:
+            os.remove(tmp)
+            raise ValueError("that file is not a picture or a video ffmpeg can read")
+        clip = os.path.join(pdir, "clip_%02d.mp4" % k)
+        fdir = os.path.join(pdir, "clip_%02d_frames" % k)
+        os.makedirs(fdir, exist_ok=True)
+        sz = "scale='if(gt(iw,ih),min(1600,iw),-2)':'if(gt(iw,ih),-2,min(1600,ih))'"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", tmp, "-t", "10", "-an", "-vf", sz, "-c:v", "libx264", "-preset",
+                        "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", clip], check=True, timeout=600)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", clip, "-vf", "fps=24", "-q:v", "3",
+                        os.path.join(fdir, "f%03d.jpg")], check=True, timeout=600)
+        os.remove(tmp)
+        frames = MO.frames_in(fdir)
+        if not frames:
+            raise ValueError("could not read frames from that video")
+        from PIL import Image
+        poster = os.path.join(pdir, "clip_%02d.jpg" % k)
+        shutil.copy(frames[min(len(frames) - 1, 12)], poster)
+        w, hh = Image.open(poster).size
+        entry = {"path": poster, "w": w, "h": hh, "caption": "", "alt": name, "url": url or "", "kind": "video",
+                 "clip": clip, "frames_dir": fdir, "fps": 24}
+    photos.append(entry)
+    K.write_json(os.path.join(d, "photos.json"), photos)
+    return {"index": k, "kind": entry["kind"], "photos": public(load(jid), full=True)["photos"]}
 
 
 def set_storyboard(jid, sb, render=False):
@@ -469,6 +643,8 @@ def info():
             "languages": {k: (ST.lang_info(k)[1] if k != "auto" else "Same as the link") for k in LANG_CHOICES},
             "formats": list(FORMATS), "qualities": ["1080p", "720p"], "llm": LLM_MODEL, "image_model": IMAGE_MODEL or None,
             "music_model": MUSIC_MODEL or None, "tts": TTS_ENABLED, "gpus": K.gpu_info(),
+            "motion": {"choices": list(MOTION_CHOICES), "parallax": DEPTH_ON, "cutout": CUTOUT_ON, "maps": MAPS_ON,
+                       "ai": I2V_MODEL or None},
             "queue": {s: sum(1 for j in jobs if j["state"] == s) for s in ("queued", "running", "review", "done", "error")}}
 
 
@@ -510,6 +686,11 @@ def build_app():
     def _render(req):
         return public(rerender(req.params["j"], req.json()))
 
+    @app.route("POST", r"/api/jobs/(?P<j>[\w-]+)/assets")
+    def _asset(req):
+        """The raw picture or video file as the body (any image type, or mp4 / mov / webm up to 200 MB)."""
+        return add_asset(req.params["j"], req.iter_body(limit=ASSET_LIMIT), name=req.arg("name", "") or "")
+
     @app.route("POST", r"/api/jobs/(?P<j>[\w-]+)/delete")
     def _delete(req):
         return delete(req.params["j"])
@@ -524,6 +705,11 @@ def build_app():
 
     # ---------------------------------------------------------------- MCP tools
     opt_schema = {
+        "motion": {"type": "string", "enum": list(MOTION_CHOICES), "default": "auto",
+                   "description": "auto: 2.5D depth parallax on photos and subject lift-off on headlines; ai: AI "
+                                  "image-to-video clips (non-news only, slow; needs I2V_MODEL); parallax; none"},
+        "map": {"type": "boolean", "default": True, "description": "map fly-in to the story's place (news, 30 s+)"},
+        "sfx": {"type": "boolean", "default": True, "description": "soft transition sounds"},
         "style": {"type": "string", "enum": list(STYLE_CHOICES), "default": "auto",
                   "description": "auto picks broadcast for news, midnight for tech, documentary for stories"},
         "length": {"type": "integer", "enum": list(ST.LENGTHS), "default": 60, "description": "seconds"},
@@ -558,12 +744,19 @@ def build_app():
         return dict(sb, photos=public(load(job_id), full=True)["photos"])
 
     @app.tool("update_storyboard", "Replace the job's script (same shape as get_storyboard) and optionally render it. "
-              "Unchanged scenes reuse their photos and narration.", {
+              "Unchanged scenes reuse their photos and narration. Each scene's photo is an index into the job's photos "
+              "(get_storyboard lists them, add_asset adds more), -1 to let the studio pick, or -2 for no picture.", {
                   "job_id": {"type": "string"}, "storyboard": {"type": "object"},
                   "render": {"type": "boolean", "default": True}}, ["job_id", "storyboard"])
     def t_update(job_id, storyboard, render=True):
         storyboard = {k: v for k, v in storyboard.items() if k != "photos"}
         return {"storyboard": set_storyboard(job_id, storyboard, render), "state": load(job_id)["state"]}
+
+    @app.tool("add_asset", "Add a picture or a short video clip (mp4/mov/webm, first 10 s used) from a URL to a job's "
+              "photos, then use its index as a scene's photo in update_storyboard. Uploads from disk: POST the raw file to "
+              "/api/jobs/<id>/assets.", {"job_id": {"type": "string"}, "url": {"type": "string"}}, ["job_id", "url"])
+    def t_asset(job_id, url):
+        return add_asset(job_id, url=url)
 
     @app.tool("render", "Render (or re-render) a job, optionally with new options. rewrite=true (or a new language) "
               "writes a new script first.", dict({"job_id": {"type": "string"}, "rewrite": {"type": "boolean", "default": False}},

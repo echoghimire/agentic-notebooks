@@ -122,12 +122,22 @@ class Media:
 
     # ------------------------------------------------------------------ music
     def music(self, prompt, path, seconds=30):
+        name = self.music_model
+        if name.lower().startswith("ace"):
+            try:
+                return self._ace(prompt, path, seconds)
+            except Exception as e:
+                name = os.environ.get("MUSIC_FALLBACK", "")
+                if not name:
+                    raise
+                if self.log:
+                    self.log.warning("ACE-Step failed (%s); using %s", e, name)
         with self.lock:
             if "mg" not in self.m:
                 import torch
                 from transformers import AutoProcessor, MusicgenForConditionalGeneration
-                proc = AutoProcessor.from_pretrained(self.music_model)
-                model = MusicgenForConditionalGeneration.from_pretrained(self.music_model, torch_dtype=torch.float16
+                proc = AutoProcessor.from_pretrained(name)
+                model = MusicgenForConditionalGeneration.from_pretrained(name, torch_dtype=torch.float16
                                                                          if self.music_device.startswith("cuda") else torch.float32)
                 self.m["mg"] = (proc, model.to(self.music_device))
             proc, model = self.m["mg"]
@@ -136,6 +146,22 @@ class Media:
             rate = model.config.audio_encoder.sampling_rate
             data = out[0, 0].float().cpu().numpy()
         write_wav(path, data / (np.abs(data).max() + 1e-6) * 0.9, rate)
+        return path
+
+    def _ace(self, prompt, path, seconds):
+        """ACE-Step (Apache 2.0, commercial use OK) in its own virtualenv; see vs_ace_worker.py."""
+        import subprocess
+        py = os.environ.get("ACE_PYTHON", "")
+        if not py or not os.path.exists(py):
+            raise RuntimeError("ACE-Step is not installed (see the notebook's install cell)")
+        dev = int(self.music_device.split(":")[1]) if ":" in self.music_device else 0
+        log = os.environ.get("ACE_LOG", "/kaggle/working/logs/ace_step.log")
+        with self.lock, open(log, "a") as lf:
+            p = subprocess.run([py, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vs_ace_worker.py"), "--out", path,
+                                "--prompt", prompt, "--seconds", str(int(seconds)), "--device", str(dev)],
+                               stdout=lf, stderr=subprocess.STDOUT, timeout=1800)
+        if p.returncode != 0 or not os.path.exists(path):
+            raise RuntimeError("ACE-Step failed; see " + log)
         return path
 
     def unload(self, *names):
@@ -158,8 +184,9 @@ def tempo(src, dst, factor):
     return duration(dst)
 
 
-def mix(total, narrations, music_path, out_path, tone="neutral"):
-    """narrations: [(start_seconds, wav_path)]. Music loops with crossfades and dips under the voice."""
+def mix(total, narrations, music_path, out_path, tone="neutral", cuts=None):
+    """narrations: [(start_seconds, wav_path)]. Music loops with crossfades and dips under the voice.
+    cuts: scene-change times for soft transition whooshes (None = no sound effects)."""
     n = int(total * OUT_RATE)
     voice = np.zeros(n, np.float32)
     for start, p in narrations:
@@ -192,6 +219,9 @@ def mix(total, narrations, music_path, out_path, tone="neutral"):
         gain[:fade_in] *= np.linspace(0, 1, len(gain[:fade_in]))
         gain[-fade_out:] *= np.linspace(1, 0, len(gain[-fade_out:]))
         out = out + m * gain
+    if cuts is not None:
+        import vs_motion
+        out = out + vs_motion.sfx_track(total, cuts, OUT_RATE, tone)[:len(out)]
     peak = np.abs(out).max()
     if peak > 0.97:
         out = out * (0.97 / peak)

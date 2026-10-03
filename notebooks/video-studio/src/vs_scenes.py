@@ -42,11 +42,11 @@ STYLES = {
 LIGHT = {"paper", "swiss"}
 SIZES = {"landscape": (1920, 1080), "reel": (1080, 1920)}
 LABELS = {
-    "en": {"latest": "LATEST", "numbers": "By the numbers", "source": "Source", "photo": "Photo", "thanks": "Thanks for watching"},
-    "ne": {"latest": "ताजा समाचार", "numbers": "तथ्यांकमा", "source": "स्रोत", "photo": "तस्बिर", "thanks": "हेर्नुभएकोमा धन्यवाद"},
-    "hi": {"latest": "ताज़ा ख़बर", "numbers": "आँकड़ों में", "source": "स्रोत", "photo": "फ़ोटो", "thanks": "देखने के लिए धन्यवाद"},
-    "es": {"latest": "ÚLTIMA HORA", "numbers": "En cifras", "source": "Fuente", "photo": "Foto", "thanks": "Gracias por ver"},
-    "fr": {"latest": "DERNIÈRE MINUTE", "numbers": "En chiffres", "source": "Source", "photo": "Photo", "thanks": "Merci d'avoir regardé"},
+    "en": {"latest": "LATEST", "numbers": "By the numbers", "source": "Source", "photo": "Photo", "thanks": "Thanks for watching", "where": "Where"},
+    "ne": {"latest": "ताजा समाचार", "numbers": "तथ्यांकमा", "source": "स्रोत", "photo": "तस्बिर", "thanks": "हेर्नुभएकोमा धन्यवाद", "where": "घटनास्थल"},
+    "hi": {"latest": "ताज़ा ख़बर", "numbers": "आँकड़ों में", "source": "स्रोत", "photo": "फ़ोटो", "thanks": "देखने के लिए धन्यवाद", "where": "स्थान"},
+    "es": {"latest": "ÚLTIMA HORA", "numbers": "En cifras", "source": "Fuente", "photo": "Foto", "thanks": "Gracias por ver", "where": "Dónde"},
+    "fr": {"latest": "DERNIÈRE MINUTE", "numbers": "En chiffres", "source": "Source", "photo": "Photo", "thanks": "Merci d'avoir regardé", "where": "Où"},
 }
 DEVANAGARI_LANGS = {"ne", "hi", "mr", "sa", "mai", "bho", "new"}
 GRAIN = ("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'>"
@@ -72,6 +72,16 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg1);
 .reel .ph .img.band{inset:auto 0 auto 0;top:13vmin}
 .landscape .ph .img.band{inset:0 0 0 auto}
 @keyframes kbband{from{transform:scale(1)}to{transform:scale(1.05)}}
+.ph .img.gl.live{animation-name:none!important}
+.ph canvas.depth,.ph canvas.seq{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:0}
+.ph .img.gl.live canvas{opacity:1}
+.ph .img.cut{animation-name:cutbg!important}
+@keyframes cutbg{from{transform:scale(1.03)}to{transform:scale(1.07)}}
+.ph .dimmer{position:absolute;inset:0;background:rgba(0,0,0,.42);animation:dimin 1.1s ease-out .3s both}
+@keyframes dimin{from{opacity:0}to{opacity:1}}
+.ph .cutfg{position:absolute;inset:0;background-size:inherit;background-position:center;background-repeat:no-repeat;
+ filter:drop-shadow(0 1.2vmin 2.6vmin rgba(0,0,0,.65));animation:cutpop var(--dur) cubic-bezier(.2,.7,.2,1) both}
+@keyframes cutpop{0%{transform:scale(1) translateY(0)}12%{transform:scale(1.035) translateY(-.6%)}100%{transform:scale(1.085) translateY(-1.2%)}}
 @keyframes kbin{from{transform:scale(1.04)}to{transform:scale(1.16)}}
 @keyframes kbout{from{transform:scale(1.16)}to{transform:scale(1.04)}}
 @keyframes kbleft{from{transform:scale(1.14) translateX(2.5%)}to{transform:scale(1.14) translateX(-2.5%)}}
@@ -202,6 +212,40 @@ pre .cur{display:inline-block;width:1.4vmin;height:3.2vmin;background:var(--acce
  border-radius:0 .8vmin .8vmin .8vmin}
 .reel .l3 .h{font-size:6.2vmin}
 .l3 .s{background:rgba(255,255,255,.92);color:#111;font:600 3vmin/1.35 var(--font);padding:1.2vmin 2.8vmin;display:inline-block;margin-top:.8vmin;border-radius:.6vmin}
+/* motion-graphic accents: a light sweep over headline panels, a drawn-on underline, drifting dust */
+.l3 .h,.plate{position:relative;overflow:hidden}
+.l3 .h::after,.plate::after{content:"";position:absolute;top:0;bottom:0;left:-40%;width:30%;pointer-events:none;
+ background:linear-gradient(100deg,transparent,rgba(255,255,255,.22),transparent);transform:skewX(-18deg);animation:sweep 1.4s ease-in-out .9s both}
+@keyframes sweep{from{left:-40%}to{left:130%}}
+.content h1::after,.content h2::after{content:"";display:block;height:.7vmin;width:12vmin;margin-top:2vmin;background:var(--accent);
+ border-radius:.4vmin;transform-origin:left;animation:draw .8s cubic-bezier(.6,0,.2,1) .7s both}
+.center h1::after{margin-left:auto;margin-right:auto;transform-origin:center}
+.pc.landscape .center h1::after{margin-left:0}
+@keyframes draw{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.dust{position:absolute;inset:0;z-index:43;pointer-events:none;opacity:.55;
+ background-image:radial-gradient(circle,rgba(255,240,210,.9) 0 .18vmin,transparent .3vmin),radial-gradient(circle,rgba(255,240,210,.6) 0 .12vmin,transparent .25vmin);
+ background-size:23vmin 19vmin,31vmin 27vmin;background-position:0 0,11vmin 7vmin;animation:dust var(--dur) linear both}
+@keyframes dust{from{transform:translate(0,0)}to{transform:translate(-4vmin,-7vmin)}}
+/* map scene: three snapshots, each 3x closer, cross-faded while zooming = one continuous fly-in */
+.map{position:absolute;inset:0;overflow:hidden;background:#0b0f17}
+.map .lv{position:absolute;inset:0;background-size:cover;background-position:center;opacity:0}
+.map .lv.wide{animation:mz1 var(--dur) linear both}.map .lv.mid{animation:mz2 var(--dur) linear both}.map .lv.close{animation:mz3 var(--dur) linear both}
+@keyframes mz1{0%{opacity:1;transform:scale(1)}26%{opacity:1;transform:scale(2.6)}32%{opacity:0;transform:scale(3.03)}100%{opacity:0;transform:scale(3.03)}}
+@keyframes mz2{0%,24%{opacity:0;transform:scale(.86)}32%{opacity:1;transform:scale(1)}56%{opacity:1;transform:scale(2.6)}62%{opacity:0;transform:scale(3.03)}100%{opacity:0;transform:scale(3.03)}}
+@keyframes mz3{0%,54%{opacity:0;transform:scale(.86)}62%{opacity:1;transform:scale(1)}100%{opacity:1;transform:scale(1.18)}}
+.map .tint{position:absolute;inset:0;background:radial-gradient(60% 60% at 50% 50%,transparent 40%,rgba(0,0,0,.55))}
+.pin{position:absolute;left:50%;top:50%;z-index:6;width:0;height:0}
+.pin .dot{position:absolute;left:-2.2vmin;top:-2.2vmin;width:4.4vmin;height:4.4vmin;border-radius:50%;background:var(--accent);
+ border:.6vmin solid #fff;box-shadow:0 .6vmin 2vmin rgba(0,0,0,.5);animation:pindrop .7s cubic-bezier(.3,1.6,.5,1) calc(var(--dur) * .6) both}
+@keyframes pindrop{from{opacity:0;transform:translateY(-12vmin) scale(.6)}to{opacity:1;transform:none}}
+.pin .ring{position:absolute;left:-2.2vmin;top:-2.2vmin;width:4.4vmin;height:4.4vmin;border-radius:50%;border:.5vmin solid var(--accent);
+ opacity:0;animation:ring 1.6s ease-out calc(var(--dur) * .6 + .5s) 4 both}
+.pin .ring.r2{animation-delay:calc(var(--dur) * .6 + 1.3s)}
+@keyframes ring{0%{opacity:.9;transform:scale(1)}100%{opacity:0;transform:scale(5)}}
+.pin .lab{position:absolute;left:4.5vmin;top:-3.6vmin;white-space:nowrap;background:var(--panel);color:#fff;font:700 3.6vmin/1.2 var(--head);
+ padding:1.2vmin 2.2vmin;border-radius:1vmin;border-left:.8vmin solid var(--accent);animation:sl .6s cubic-bezier(.2,.8,.2,1) calc(var(--dur) * .6 + .4s) both}
+.osm{position:absolute;right:2vmin;bottom:2vmin;z-index:30;font:500 1.6vmin var(--font);color:rgba(255,255,255,.8);background:rgba(0,0,0,.45);padding:.4vmin 1vmin;border-radius:.6vmin}
+.reel .osm{bottom:auto;top:13vmin}
 .ticker{position:absolute;left:0;right:0;bottom:0;height:8vmin;z-index:35;display:flex;align-items:center;overflow:hidden;
  background:var(--accent2);color:#111;font:700 3vmin var(--font)}
 .reel .ticker{bottom:20vmin}
@@ -211,11 +255,12 @@ pre .cur{display:inline-block;width:1.4vmin;height:3.2vmin;background:var(--acce
 """)
 
 JS = """
-const CAPS = __CAPS__, COUNTS = [...document.querySelectorAll('[data-count]')], TYPE = document.querySelector('[data-type]');
+const DUR = __DUR__, CAPS = __CAPS__, COUNTS = [...document.querySelectorAll('[data-count]')], TYPE = document.querySelector('[data-type]');
 const capEl = document.querySelector('.cap');
 function fmtNum(v, dec){ return dec ? v.toFixed(dec) : Math.round(v).toLocaleString('en-US'); }
 window.__seek = function(t){
   document.getAnimations().forEach(a => { a.pause(); a.currentTime = t * 1000; });
+  GL.forEach(draw => draw(t));
   if (capEl) { const c = CAPS.find(c => t >= c[0] && t < c[1]); capEl.textContent = c ? c[2] : ''; capEl.style.opacity = c ? 1 : 0; }
   COUNTS.forEach((el, i) => {
     const target = parseFloat(el.dataset.count), dec = +el.dataset.dec, f = Math.min(1, Math.max(0, (t - 0.6 - i * 0.2) / 1.4));
@@ -224,10 +269,72 @@ window.__seek = function(t){
   if (TYPE) { const full = TYPE.dataset.type, n = Math.floor(Math.max(0, t - 0.9) * __CPS__);
     TYPE.textContent = full.slice(0, n); const cur = document.createElement('span'); cur.className = 'cur'; TYPE.appendChild(cur); }
 };
+const GL = [];
+const VS = 'attribute vec2 p;varying vec2 v;void main(){v=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
+const FS = 'precision highp float;varying vec2 v;uniform sampler2D img,dep;uniform vec2 sc,dir;uniform float t,zoom,amt;' +
+  'void main(){float e=t*t*(3.-2.*t);vec2 c=vec2(.5);vec2 uv=(v-c)*sc/(1.07+zoom*e)+c;vec2 s=dir*amt*(e*2.-1.);' +
+  'vec2 q=uv;for(int i=0;i<10;i++){q=uv+s*(texture2D(dep,q).r-.45);}gl_FragColor=texture2D(img,clamp(q,0.,1.));}';
+const MOVES = [[[.9, .25], .10], [[-1, .1], .05], [[.15, -.9], .07], [[-.6, -.4], -.04]];
+function glLayer(cv, im, dp) {
+  const box = cv.parentElement, w = Math.max(2, Math.round(box.clientWidth)), h = Math.max(2, Math.round(box.clientHeight));
+  cv.width = w; cv.height = h;
+  const g = cv.getContext('webgl', {preserveDrawingBuffer: true, antialias: false, premultipliedAlpha: false});
+  if (!g) return null;
+  const sh = (type, src) => { const s = g.createShader(type); g.shaderSource(s, src); g.compileShader(s); return s; };
+  const pr = g.createProgram(); g.attachShader(pr, sh(g.VERTEX_SHADER, VS)); g.attachShader(pr, sh(g.FRAGMENT_SHADER, FS));
+  g.linkProgram(pr); if (!g.getProgramParameter(pr, g.LINK_STATUS)) return null; g.useProgram(pr);
+  const b = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, b);
+  g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), g.STATIC_DRAW);
+  const loc = g.getAttribLocation(pr, 'p'); g.enableVertexAttribArray(loc); g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
+  g.pixelStorei(g.UNPACK_FLIP_Y_WEBGL, true);
+  [[im, 0, 'img'], [dp, 1, 'dep']].forEach(([src, unit, name]) => {
+    const tx = g.createTexture(); g.activeTexture(g.TEXTURE0 + unit); g.bindTexture(g.TEXTURE_2D, tx);
+    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, src);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
+    g.uniform1i(g.getUniformLocation(pr, name), unit);
+  });
+  const ia = im.naturalWidth / im.naturalHeight, ca = w / h;
+  g.uniform2f(g.getUniformLocation(pr, 'sc'), ca > ia ? 1 : ca / ia, ca > ia ? ia / ca : 1);
+  const [d, z] = MOVES[+cv.dataset.move % 4];
+  g.uniform2f(g.getUniformLocation(pr, 'dir'), d[0], d[1]); g.uniform1f(g.getUniformLocation(pr, 'zoom'), z);
+  g.uniform1f(g.getUniformLocation(pr, 'amt'), 0.035);
+  const ut = g.getUniformLocation(pr, 't');
+  g.viewport(0, 0, w, h);
+  if (g.getError() !== g.NO_ERROR) return null;
+  return t => { g.uniform1f(ut, Math.min(1, Math.max(0, t / DUR))); g.drawArrays(g.TRIANGLE_STRIP, 0, 4); };
+}
+const loadImg = u => new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(im); im.onerror = bad; im.src = u; });
+function seqLayer(cv, ims) {
+  const box = cv.parentElement, w = Math.round(box.clientWidth), h = Math.round(box.clientHeight);
+  cv.width = w; cv.height = h;
+  const c = cv.getContext('2d'), fps = +cv.dataset.fps || 24, n = ims.length;
+  return t => {                                     /* ping-pong so a 3 s clip fills a longer scene smoothly */
+    let k = Math.floor(t * fps * 0.8) % Math.max(1, 2 * n - 2); if (k >= n) k = 2 * n - 2 - k;
+    const im = ims[Math.max(0, Math.min(n - 1, k))], ia = im.naturalWidth / im.naturalHeight, ca = w / h;
+    const sw = ca > ia ? im.naturalWidth : im.naturalHeight * ca, sh = ca > ia ? im.naturalWidth / ca : im.naturalHeight;
+    c.drawImage(im, (im.naturalWidth - sw) / 2, (im.naturalHeight - sh) / 2, sw, sh, 0, 0, w, h);
+  };
+}
+async function initGL() {
+  for (const cv of document.querySelectorAll('canvas.seq')) {
+    try {
+      const ims = await Promise.all(JSON.parse(cv.dataset.frames).map(loadImg));
+      if (ims.length) { GL.push(seqLayer(cv, ims)); cv.parentElement.classList.add('live'); }
+    } catch (e) {}
+  }
+  for (const cv of document.querySelectorAll('canvas.depth')) {
+    try {
+      const [im, dp] = await Promise.all([loadImg(cv.dataset.img), loadImg(cv.dataset.depth)]);
+      const draw = glLayer(cv, im, dp);
+      if (draw) { GL.push(draw); cv.parentElement.classList.add('live'); }
+    } catch (e) {}                                  /* no WebGL or no depth map: the CSS camera move stays */
+  }
+}
 window.__ready = false;
 const urls = [...document.querySelectorAll('[data-bg]')].map(e => e.dataset.bg);
 Promise.all([document.fonts.ready, ...urls.map(u => new Promise(r => { const im = new Image(); im.onload = im.onerror = r; im.src = u; }))])
-  .then(() => { window.__seek(0); window.__ready = true; });
+  .then(initGL).then(() => { window.__seek(0); window.__ready = true; });
 """
 
 
@@ -283,10 +390,23 @@ def photo_layer(ph, idx, fmt="landscape"):
         cls = "img band"
         size = ("height:%.1fvmin;" % max(46, min(70, 100 / pa)) if fmt == "reel"
                 else "width:%.1fvmin;" % max(56, min(100, 100 * pa)))
+    inner = ""
+    if ph.get("frames"):                                # an AI clip (non-news only): frames drawn at exact times
+        cls += " gl"
+        inner = '<canvas class="seq" data-fps="%s" data-frames="%s"></canvas>' % (
+            esc(ph.get("fps", 24)), esc(json.dumps([_url(f) for f in ph["frames"]])))
+    elif ph.get("cut"):                                   # the subject lifts off a dimming background
+        cls += " cut"
+        cu = esc(_url(ph["cut"]))
+        inner = '<div class="dimmer"></div><div class="cutfg" data-bg="%s" style="background-image:url(\'%s\')"></div>' % (cu, cu)
+    elif ph.get("depth"):                               # 2.5D parallax of the real photo (WebGL); CSS motion if WebGL fails
+        cls += " gl"
+        inner = '<canvas class="depth" data-img="%s" data-depth="%s" data-move="%d"></canvas>' % (
+            u, esc(_url(ph["depth"])), idx % 4)
     return ('<div class="ph"><div class="fill" style="background-image:url(\'%s\')"></div>'
-            '<div class="%s" data-bg="%s" style="%sbackground-image:url(\'%s\');animation-name:%s"></div>'
+            '<div class="%s" data-bg="%s" style="%sbackground-image:url(\'%s\');animation-name:%s">%s</div>'
             '<div class="vig"></div><div class="shade"></div></div>') % (
-        u, cls, u, size, u, ("kbin", "kbleft", "kbout", "kbright")[idx % 4])
+        u, cls, u, size, u, ("kbin", "kbleft", "kbout", "kbright")[idx % 4], inner)
 
 
 def words(text, start=0.25, step=0.07, limit=1.6):
@@ -340,6 +460,20 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
         else:
             body = '<div class="content lower"><div class="kicker up" style="animation-delay:.2s">%s</div><h2>%s</h2>%s</div>' % (
                 esc(kicker) or "%02d" % idx, words(h, .4), '<p class="tag up" style="animation-delay:1s">%s</p>' % esc(sub) if sub else "")
+    elif lay == "map":
+        m = scene.get("map") or {}
+        bg = '<div class="map">%s<div class="tint"></div></div>' % "".join(
+            '<div class="lv %s" data-bg="%s" style="background-image:url(\'%s\')"></div>' % (k, esc(_url(m[k])), esc(_url(m[k])))
+            for k in ("wide", "mid", "close") if m.get(k))
+        label = m.get("label") or ""
+        body = ('<div class="pin"><div class="ring"></div><div class="ring r2"></div><div class="dot"></div>%s</div>'
+                '<div class="osm">© OpenStreetMap</div>') % ('<div class="lab">%s</div>' % esc(label) if label else "")
+        if broadcast:
+            body += '<div class="l3"><div class="k slide" style="animation-delay:.2s">%s</div><div class="h slide" style="animation-delay:.3s">%s</div></div>' % (
+                esc(L["where"]), words(h or label, .45))
+        else:
+            body += '<div class="content lower"><div class="kicker up" style="animation-delay:.2s">%s</div><h2>%s</h2></div>' % (
+                esc(L["where"]), words(h or label, .4))
     elif lay == "stats":
         cards = ""
         for i, s in enumerate(scene.get("stats") or []):
@@ -373,11 +507,11 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
                 esc(site or L["latest"]), esc(" • ".join(x for x in (story.get("title"), story.get("tagline")) if x)))
     texture = ""
     if style == "documentary":
-        texture = '<div class="leak"></div><div class="grain"></div>'
+        texture = '<div class="leak"></div><div class="grain"></div><div class="dust"></div>'
     elif style in ("broadcast", "midnight", "neon") and photo:
         texture = '<div class="grain" style="opacity:.07"></div>'
-    onphoto = bool(photo) and lay in ("title", "headline", "photo", "quote", "outro")
-    pc = onphoto and photo.get("fit") == "contain"
+    onphoto = (bool(photo) and lay in ("title", "headline", "photo", "quote", "outro")) or lay == "map"
+    pc = onphoto and bool(photo) and photo.get("fit") == "contain"
     var = ""
     if pc:                                              # where the text starts, beside or below the band photo
         pa = photo.get("w", 1) / float(photo.get("h", 1) or 1)
@@ -395,4 +529,4 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
             '<script>%s</script></body></html>') % (
         cls, var, esc(lang), CSS.substitute(st), bg, body, furniture, credit, texture, num,
         '<div class="cap"></div>' if captions else "", transition,
-        JS.replace("__CAPS__", json.dumps(captions or [], ensure_ascii=False)).replace("__CPS__", "%.2f" % cps))
+        JS.replace("__DUR__", "%.3f" % dur).replace("__CAPS__", json.dumps(captions or [], ensure_ascii=False)).replace("__CPS__", "%.2f" % cps))

@@ -75,6 +75,13 @@ details.sb>summary{cursor:pointer;font-weight:700;font-size:15px;margin:14px 0;p
 .scene img,.scene .noimg{width:120px;height:120px;object-fit:cover;border-radius:8px;background:var(--panel2)}
 .scene .noimg{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
 .scene textarea{min-height:54px}
+.scene>*{min-width:0}
+.pick{display:flex;gap:6px;overflow-x:auto;padding:4px 0 2px}
+.pick .opt{flex:none;width:76px;height:54px;border-radius:8px;border:2px solid transparent;background:var(--panel2) center/cover no-repeat;
+ cursor:pointer;position:relative;display:flex;align-items:center;justify-content:center;font-size:11.5px;color:var(--muted);text-align:center;line-height:1.2}
+.pick .opt.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 35%,transparent)}
+.pick .opt .tag{position:absolute;left:3px;bottom:3px;font-size:10px;background:rgba(0,0,0,.65);color:#fff;border-radius:4px;padding:0 4px}
+.pick .opt.up{border:2px dashed var(--line)}.pick .opt.up:hover{border-color:var(--accent);color:var(--accent)}
 .empty-hero{color:var(--muted);text-align:center;padding:30px 10px}
 @media (max-width:640px){.steps{grid-template-columns:repeat(4,1fr)}.prog .pct{font-size:32px}.brand{font-size:18px}.go{width:100%;margin-left:0}.scene{grid-template-columns:1fr}.scene img,.scene .noimg{width:100%;height:160px}}
 </style></head><body>
@@ -108,6 +115,11 @@ details.sb>summary{cursor:pointer;font-weight:700;font-size:15px;margin:14px 0;p
         <label>Language<select id="language"></select></label>
         <label>Voice<select id="voice"></select></label>
         <label>Quality<select id="quality"><option>1080p</option><option>720p</option></select></label>
+        <label>Motion<select id="motion">
+          <option value="auto">Auto · 3D photos + subject pop</option><option value="parallax">3D photos only</option>
+          <option value="ai">AI video clips (non-news, slow)</option><option value="none">None (still photos)</option></select></label>
+        <label class="inline"><input type="checkbox" id="map" checked> Map of the place (news)</label>
+        <label class="inline"><input type="checkbox" id="sfx" checked> Transition sounds</label>
         <label class="inline"><input type="checkbox" id="music" checked> Background music</label>
         <label class="inline"><input type="checkbox" id="captions" checked> Captions</label>
         <label class="inline"><input type="checkbox" id="review"> Let me edit the script first</label>
@@ -140,6 +152,7 @@ $("#source").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrl
 function opts() {
   return {style, length, language: $("#language").value, voice: $("#voice").value, quality: $("#quality").value,
           music: $("#music").checked, captions: $("#captions").checked, review: $("#review").checked,
+          motion: $("#motion").value, map: $("#map").checked, sfx: $("#sfx").checked,
           formats: [$("#fl").classList.contains("on") && "landscape", $("#fr").classList.contains("on") && "reel"].filter(Boolean)};
 }
 $("#go").onclick = async () => {
@@ -161,6 +174,7 @@ async function loadInfo() {
     Object.entries(INFO.voices).forEach(([k, v]) => $("#voice").append(el("option", {value: k}, v)));
     $("#voice").append(el("option", {value: "none"}, "No narration (captions only)"));
     if (!INFO.music_model) { $("#music").checked = false; $("#music").disabled = true; }
+    if (INFO.motion && !INFO.motion.ai) { const o = $("#motion option[value=ai]"); o.disabled = true; o.textContent += " · set I2V_MODEL"; }
   }
 }
 
@@ -201,12 +215,43 @@ function keyOf(j) {
   return [j.id, j.state, Object.keys(j.files || {}).sort().join(","), (j.photos || []).length, (j.warnings || []).length].join("|");
 }
 
+let PHOTOS = [], JOBID = null;
+function picker(i, cur) {
+  const box = el("div", {class: "pick", "data-pick": i});
+  const choose = v => { $(`[data-i="${i}"][data-k="photo"]`).value = v; editing = true; drawPick(box, i, v); };
+  box.choose = choose;
+  drawPick(box, i, cur);
+  return box;
+}
+function drawPick(box, i, cur) {
+  const opt = (v, label, bg, tag) => el("div", {class: "opt" + (+cur === v ? " on" : ""), title: label, onclick: () => box.choose(v),
+    style: bg ? {backgroundImage: `url("${bg}")`} : {}}, bg ? null : label, tag ? el("span", {class: "tag"}, tag) : null);
+  const file = el("input", {type: "file", accept: "image/*,video/*", hidden: true, onchange: e => upload(e.target.files[0], box)});
+  box.replaceChildren(opt(-1, "Auto"), opt(-2, "No picture"),
+    ...PHOTOS.map(p => opt(p.index, p.description || p.caption || "photo " + p.index, p.url, p.kind === "video" ? "▶ clip" : p.kind === "upload" ? "yours" : null)),
+    el("div", {class: "opt up", title: "Upload a picture or a video clip (first 10 s)", onclick: () => file.click()}, "＋ Upload"), file);
+  const thumb = $(`[data-thumb="${i}"]`), sel = PHOTOS.find(p => p.index === +cur);
+  if (thumb && sel) thumb.replaceChildren(el("img", {src: sel.url, alt: ""}));
+}
+async function upload(f, box) {
+  if (!f) return;
+  toast("Uploading " + f.name + "…");
+  try {
+    const r = await fetch("/api/jobs/" + JOBID + "/assets?name=" + encodeURIComponent(f.name), {method: "POST", body: f});
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText);
+    PHOTOS = j.photos;
+    $$("[data-pick]").forEach(b => drawPick(b, +b.dataset.pick, $(`[data-i="${b.dataset.pick}"][data-k="photo"]`).value));
+    box.choose(j.index); toast(j.kind === "video" ? "Clip added to this scene" : "Picture added to this scene", "ok");
+  } catch (e) { toast("Upload failed: " + e.message, "bad"); }
+}
 function sceneEditor(sb, images) {
   return sb.scenes.map((s, i) => {
     const img = images[String(i)];
     const f = (k, v, ph, big) => el(big ? "textarea" : "input", {"data-i": i, "data-k": k, value: v || "", placeholder: ph, style: {width: "100%"}}, big ? v || "" : null);
-    return el("div", {class: "scene"}, img ? el("img", {src: img, alt: ""}) : el("div", {class: "noimg"}, s.layout),
-      el("div", {class: "col"}, el("div", {class: "row small muted"}, "Scene " + (i + 1) + " · " + s.layout + (s.photo >= 0 ? " · photo " + s.photo : "")),
+    return el("div", {class: "scene"}, el("div", {"data-thumb": i}, img ? el("img", {src: img, alt: ""}) : el("div", {class: "noimg"}, s.layout)),
+      el("div", {class: "col"}, el("div", {class: "row small muted"}, "Scene " + (i + 1) + " · " + s.layout),
+        el("input", {type: "hidden", "data-i": i, "data-k": "photo", value: s.photo ?? -1}),
+        el("div", {class: "small muted"}, "Picture or clip"), picker(i, s.photo ?? -1),
         f("heading", s.heading, "On-screen headline"), f("kicker", s.kicker, "Small label (place • date)"),
         ["bullets", "photo"].includes(s.layout) ? f("bullets", (s.bullets || []).join("\n"), "Points, one per line", true) : null,
         s.layout === "code" ? f("code", s.code, "Code", true) : null,
@@ -218,7 +263,7 @@ function sceneEditor(sb, images) {
 function collect(sb) {
   const out = JSON.parse(JSON.stringify(sb));
   $$("[data-k]", $("#detail")).forEach(e => { const s = out.scenes[+e.dataset.i], k = e.dataset.k;
-    s[k] = k === "bullets" ? e.value.split("\n").map(x => x.trim()).filter(Boolean) : e.value; });
+    s[k] = k === "bullets" ? e.value.split("\n").map(x => x.trim()).filter(Boolean) : k === "photo" ? +e.value : e.value; });
   out.title = $("#sbtitle").value; out.tagline = $("#sbtag").value;
   return out;
 }
@@ -247,6 +292,7 @@ async function show() {
         el("a", {class: "btn primary", href: j.files["landscape.mp4"] + "?download=1"}, "⬇ Landscape 16:9")) : null));
   }
   if ((j.photos || []).length) parts.push(el("h3", {}, "Photos from the link"), el("div", {class: "strip"}, ...j.photos.map(p => el("img", {src: p.url, title: p.description || p.caption || "", alt: ""}))));
+  PHOTOS = j.photos || []; JOBID = j.id;
   if (j.storyboard) {
     const sb = j.storyboard;
     parts.push(el("details", {class: "sb", open: j.state === "review" || sbOpen ? true : null, ontoggle: e => { sbOpen = e.currentTarget.open; }},

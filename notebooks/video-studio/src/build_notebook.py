@@ -19,9 +19,10 @@ Paste a link (a **news article in Nepali or English**, any web page, a **GitHub 
 | Read the link: article text, date, photos and captions | [trafilatura](https://github.com/adbar/trafilatura) + headless Chromium fallback, GitHub API, yt-dlp, pymupdf | CPU |
 | Pick and edit the photos; describe them so each scene gets the right one | Pillow, Gemma 3 vision | CPU / GPU 0 |
 | Write the script in the video's language (checked and retried if it drifts) | Ollama `gemma3:12b` (140+ languages) | GPU 0 |
-| Narration | Indic Parler-TTS (Nepali, Hindi...), Piper (light Nepali), Kokoro (English...) | GPU 1 / CPU |
-| Illustrations only for non-news topics without photos, and background music matched to the tone | SDXL, MusicGen | GPU 1 |
-| Animate (broadcast lower-thirds, kinetic type, film grain, wipes) and render both formats in parallel | headless Chromium + ffmpeg | CPU |
+| Narration | Indic Parler-TTS, Svara-TTS (male and female Nepali / Hindi), Piper, Kokoro; optional online Microsoft voices | GPU 1 / CPU |
+| Motion on real photos: 2.5D depth parallax, subject lift-off; map fly-in to the story's place | Depth Anything V2 Small, BiRefNet, MapLibre + OpenStreetMap | GPU 1 / CPU |
+| Illustrations and AI video clips only for non-news topics; background music matched to the tone | SDXL, LTX-Video / Wan 2.2 (opt-in), MusicGen or ACE-Step | GPU 1 |
+| Animate (broadcast lower-thirds, kinetic type, light sweeps, film grain, wipes, transition sounds) and render both formats in parallel | headless Chromium (WebGL) + ffmpeg | CPU |
 
 Inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) and [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache 2.0). A local model only fills in a script; ready-made templates do the design, and every frame is rendered exactly.
 
@@ -29,7 +30,7 @@ Inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) and [Hyp
 |---|---|
 | `/` | The studio: paste a link, pick 15/30/60/90 s and formats, watch progress, play and download both videos, edit the script |
 | `/api/*` | JSON API |
-| `/mcp` | MCP server for agents (tools: `make_video`, `get_job`, `get_storyboard`, `update_storyboard`, `render`, `list_jobs`, `delete_job`, `list_options`) |
+| `/mcp` | MCP server for agents (tools: `make_video`, `get_job`, `get_storyboard`, `update_storyboard`, `add_asset`, `render`, `list_jobs`, `delete_job`, `list_options`) |
 
 ### Before you run
 1. **Accelerator:** GPU T4 x2 (one GPU works, more slowly). **Internet:** on.
@@ -41,7 +42,7 @@ Inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) and [Hyp
 4. **Run All.** First run: about 12–15 minutes (installs + ~20 GB of models). Then a 60-second video takes roughly 5–10 minutes on T4 x2; 720p renders about twice as fast.
 
 ### Licences and responsibility
-Gemma 3: Gemma Terms of Use. Indic Parler-TTS, Kokoro, Qwen: Apache 2.0. Piper: MIT (Nepali voice from the OpenSLR corpus). SDXL: CreativeML OpenRAIL++. **MusicGen weights are CC-BY-NC 4.0 (non-commercial)**: set `MUSIC_MODEL = ""` for monetised videos. **Photos and text from a link belong to their publisher**: the video credits the site, but make sure you may reuse them (for example your own site, or with permission).
+Gemma 3: Gemma Terms of Use. Indic Parler-TTS, Svara-TTS, Kokoro, Depth Anything V2 Small, ACE-Step, Wan 2.2: Apache 2.0. BiRefNet, Piper: MIT. LTX-Video: Lightricks' open-weights licence (check it before commercial use). Map data © OpenStreetMap contributors (ODbL), tiles by OpenFreeMap. SDXL: CreativeML OpenRAIL++. **MusicGen weights are CC-BY-NC 4.0 (non-commercial)**: for monetised videos set `MUSIC_MODEL = "ace-step"` (Apache 2.0) or `""`. The online voices (`ONLINE_VOICES = True`) send the narration text to Microsoft and are not open source. **Photos and text from a link belong to their publisher**: the video credits the site, but make sure you may reuse them (for example your own site, or with permission).
 
 Videos are saved in `/kaggle/working/video_studio/jobs/` and disappear when the session ends: download what you want to keep. Logs: `/kaggle/working/logs/`.
 """)
@@ -51,15 +52,26 @@ nb.code("""
 LLM_MODEL = "gemma3:12b"                                    # writes Nepali well and can look at photos; "gemma3:4b" is faster
 IMAGE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"    # only for non-news topics without photos; "" = never draw
 IMAGE_STEPS = 25
-MUSIC_MODEL = "facebook/musicgen-small"                     # "" = no music (MusicGen weights are non-commercial)
+MUSIC_MODEL = "facebook/musicgen-small"                     # "ace-step" = Apache 2.0 music (commercial OK, slower, own virtualenv);
+                                                            # "" = no music (MusicGen weights are non-commercial)
 NARRATION = True
 INDIC_VOICES = True                                         # Indic Parler-TTS for Nepali / Hindi (~4 GB, own virtualenv)
+SVARA_VOICES = True                                         # Svara-TTS: male + female Nepali / Hindi voices (~7 GB)
+ONLINE_VOICES = False                                       # Microsoft Edge neural voices (Nepali Hemkala / Sagar...): online,
+                                                            # very natural, but text goes to Microsoft; not open source
+DEPTH_PARALLAX = True                                       # 2.5D motion of real photos (Depth Anything V2 Small, ~100 MB)
+SUBJECT_CUTOUT = True                                       # headline subject lifts off the photo (BiRefNet lite, ~200 MB)
+LOCATION_MAPS = True                                        # map fly-in to the story's place (OpenStreetMap, needs internet)
+I2V_MODEL = ""                                              # AI video clips for NON-news topics, picked per video as Motion "AI":
+                                                            # "ltx" (LTX-Video, faster) or "wan" (Wan 2.2 5B, slow); "" = off
 RENDER_QUALITY = "1080p"                                    # or "720p" (about twice as fast); the page can override it
 PORT = 7860
 WORK_DIR = "/kaggle/working/video_studio"
 LOG_DIR = "/kaggle/working/logs"
 PARLER_ENV = "/tmp/parler_env"                             # outside /kaggle/working (kept out of the notebook's output)
 PIPER_DIR = "/kaggle/working/piper"
+ACE_ENV = "/tmp/ace_env"
+ACE_CKPT = "/tmp/ace_checkpoints"
 APP_DIR = %r
 print("Settings saved.")
 """ % APP_DIR)
@@ -70,8 +82,10 @@ for name, title in [("vs_source.py", "Reads any link: articles (trafilatura), Gi
                     ("vs_story.py", "Script and storyboard in the video's language, validation and fallback"),
                     ("vs_scenes.py", "Animated scene templates: broadcast, documentary and more; landscape and reel"),
                     ("vs_media.py", "Photos, images (SDXL), music (MusicGen), Kokoro voices, audio mix"),
-                    ("vs_tts.py", "Voices by language: Indic Parler-TTS, Piper, Kokoro"),
+                    ("vs_tts.py", "Voices by language: Indic Parler-TTS, Svara-TTS, Piper, Kokoro, online voices"),
+                    ("vs_motion.py", "Motion: depth parallax, subject cut-outs, location maps, transition sounds, AI clips"),
                     ("vs_parler_worker.py", "Indic Parler-TTS worker (runs in its own virtualenv)"),
+                    ("vs_ace_worker.py", "ACE-Step music worker (runs in its own virtualenv)"),
                     ("vs_render.py", "Renderer: headless Chromium frames -> ffmpeg"),
                     ("vs_server.py", "Studio server on port 7860: jobs, API and MCP"),
                     ("vs_ui.html", "Studio page")]:
@@ -106,9 +120,16 @@ if NARRATION:
     except RuntimeError:
         print("  Kokoro did not install (English voices are skipped); the error is above.")
 # Extras: the app works without them (built-in article reader; Indic Parler or captions for Nepali)
-for extra, why in (("trafilatura", "better article extraction"), ("piper-tts", "the light Nepali voice")):
+extras = [("trafilatura", "better article extraction"), ("piper-tts", "the light Nepali voice")]
+if SUBJECT_CUTOUT:
+    extras.append(("timm kornia einops", "subject cut-outs"))
+if SVARA_VOICES:
+    extras.append(("snac", "the Svara voices"))
+if ONLINE_VOICES:
+    extras.append(("edge-tts", "the online voices"))
+for extra, why in extras:
     try:
-        pip_install(extra)
+        pip_install(*extra.split())
     except RuntimeError:
         print("  %s did not install (%s is skipped); the error is above." % (extra, why))
 print("Headless Chromium...")
@@ -138,13 +159,46 @@ if INDIC_VOICES and not os.path.exists(PARLER_ENV + "/bin/python"):
 if INDIC_VOICES and os.path.exists(PARLER_ENV + "/bin/python"):
     snapshot_download("ai4bharat/indic-parler-tts")
     snapshot_download("google/flan-t5-large", allow_patterns=["*.json", "*.model", "tokenizer*"])
+if SVARA_VOICES:
+    try:
+        snapshot_download("kenpath/svara-tts-v1", allow_patterns=["*.json", "*.safetensors", "tokenizer*"])
+        snapshot_download("hubertsiuzdak/snac_24khz")
+    except Exception as e:
+        print("  Svara voices unavailable:", e)
+        SVARA_VOICES = False
+
+print("Motion models...")
+for flag, repo in ((DEPTH_PARALLAX, "depth-anything/Depth-Anything-V2-Small-hf"), (SUBJECT_CUTOUT, "ZhengPeng7/BiRefNet_lite")):
+    if flag:
+        try:
+            snapshot_download(repo)
+        except Exception as e:
+            print("  %s unavailable: %s" % (repo, e))
+if I2V_MODEL:
+    print("Image-to-video model %s (large; first time only)..." % I2V_MODEL)
+    snapshot_download({"ltx": "Lightricks/LTX-Video", "wan": "Wan-AI/Wan2.2-TI2V-5B-Diffusers"}.get(I2V_MODEL, I2V_MODEL),
+                      allow_patterns=["model_index.json", "scheduler/*", "text_encoder/*", "tokenizer/*", "transformer/*",
+                                      "vae/*", "image_encoder/*", "image_processor/*"])   # the diffusers folders only
+if MUSIC_MODEL.lower().startswith("ace") and not os.path.exists(ACE_ENV + "/bin/python"):
+    try:
+        # ACE-Step pins old transformers and spaCy: its own virtualenv reusing Kaggle's PyTorch, packages from wheels
+        sh("%s -m venv --system-site-packages %s" % (sys.executable, ACE_ENV))
+        sh("%s/bin/pip install -q --disable-pip-version-check --no-deps git+https://github.com/ace-step/ACE-Step.git" % ACE_ENV)
+        sh("%s/bin/pip install -q --disable-pip-version-check -c /tmp/keep_core.txt --only-binary=:all: transformers==4.50.0 "
+           "'diffusers>=0.33' loguru pypinyin py3langid hangul-romanize num2words cutlet 'fugashi[unidic-lite]' "
+           "pytorch_lightning soundfile librosa spacy" % ACE_ENV)
+        snapshot_download("ACE-Step/ACE-Step-v1-3.5B", local_dir=ACE_CKPT)
+    except Exception as e:
+        print("  ACE-Step did not install (%s); using MusicGen for music." % e)
+        shutil.rmtree(ACE_ENV, ignore_errors=True)
+        MUSIC_MODEL = "facebook/musicgen-small"
 
 print("Image, music and English voice models (first time only)...")
 if IMAGE_MODEL:
     snapshot_download(IMAGE_MODEL, allow_patterns=["*.json", "*.txt", "*fp16.safetensors", "tokenizer*/*"])
     if "xl" in IMAGE_MODEL.lower():
         snapshot_download("madebyollin/sdxl-vae-fp16-fix", allow_patterns=["*.json", "*.safetensors"])
-if MUSIC_MODEL:
+if MUSIC_MODEL and not MUSIC_MODEL.lower().startswith("ace"):
     snapshot_download(MUSIC_MODEL, ignore_patterns=["*.bin", "*.msgpack", "*.h5"])
 if NARRATION:
     snapshot_download("hexgrad/Kokoro-82M", allow_patterns=["*.json", "*.pth", "voices/*.pt"])
@@ -178,6 +232,11 @@ env = dict(os.environ, APP_PASSWORD=PASSWORD, WORK_DIR=WORK_DIR, APP_LOG=LOG_DIR
            LLM_MODEL=LLM_MODEL, IMAGE_MODEL=IMAGE_MODEL, IMAGE_STEPS=str(IMAGE_STEPS), MUSIC_MODEL=MUSIC_MODEL,
            TTS="1" if NARRATION else "0", TTS_DEVICE="cpu", RENDER_QUALITY=RENDER_QUALITY,
            PARLER_PYTHON=parler_py, PIPER_DIR=PIPER_DIR,
+           SVARA_MODEL="kenpath/svara-tts-v1" if SVARA_VOICES else "", ONLINE_VOICES="1" if ONLINE_VOICES else "0",
+           DEPTH_PARALLAX="1" if DEPTH_PARALLAX else "0", SUBJECT_CUTOUT="1" if SUBJECT_CUTOUT else "0",
+           LOCATION_MAPS="1" if LOCATION_MAPS else "0", I2V_MODEL=I2V_MODEL,
+           ACE_PYTHON=ACE_ENV + "/bin/python" if os.path.exists(ACE_ENV + "/bin/python") else "",
+           ACE_LOG=LOG_DIR + "/ace_step.log", ACE_CHECKPOINTS=ACE_CKPT,
            MEDIA_DEVICE="cuda:1" if n_gpu > 1 else "cuda:0",
            LLM_KEEP_ALIVE="10m" if n_gpu > 1 else "0",      # one GPU: free the LLM's memory before drawing
            UNLOAD_AFTER="0" if n_gpu > 1 else "1", TOKENIZERS_PARALLELISM="false")
