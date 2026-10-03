@@ -40,7 +40,7 @@ Paste a link and get a narrated video with music as **16:9 landscape** and **9:1
 
 The page has a sign-in screen (no browser pop-up), then a single box: paste a link, pick a length and formats, then **Make video**. *More options* has style, language, voice, quality, motion, map, music, transition sounds and captions. The ☰ menu holds your video history, agent setup and sign-out. While it works, a large progress bar shows the percentage, the current step and the time left. Results show a phone-framed reel next to the landscape video, the photos found on the link, and a script editor; unchanged scenes keep their photos and narration when you re-render.
 
-**Pick each scene's picture in the script editor:** every scene has a strip with *Auto*, *No picture*, all the link's photos, and **＋ Upload**, for your own picture or a video clip (mp4 / mov / webm; the first 10 s are used and play in the scene). Uploads are added to every scene's strip. Tick *Let me edit the script first* to choose before the first render, or edit and re-render afterwards.
+**Pick each scene's picture in the script editor:** every scene has a strip with *Auto*, *No picture*, all the link's photos, **＋ Upload** (your own picture or video clip: mp4 / mov / webm, the first 10 s play in the scene) and **🔗 Link**. A link can be a picture or video file, a video page (YouTube, Vimeo, Facebook, X, TikTok, Instagram: the first 10 s, via yt-dlp) or any web page (its main picture or video). **Links are credited automatically** on screen ("Photo: Kathmandu Post", "Video: channel · Youtube"); your own uploads show no credit. Everything added appears in every scene's strip. Tick *Let me edit the script first* to choose before the first render, or edit and re-render afterwards.
 
 ## API
 
@@ -53,6 +53,7 @@ GET  /api/jobs/<id>?wait=60                 state, progress, files, storyboard, 
 POST /api/jobs/<id>/storyboard {"storyboard", "render": true}
 POST /api/jobs/<id>/render {options..., "rewrite": false}
 POST /api/jobs/<id>/assets?name=clip.mp4      raw picture or video as the body (up to 200 MB) -> {"index", "kind", "photos"}
+POST /api/jobs/<id>/assets?url=<link>         picture / video / video page / web page from a link, credited automatically
 POST /api/jobs/<id>/delete
 GET  /api/jobs/<id>/files/landscape.mp4 | reel.mp4 | landscape.jpg | reel.jpg   (?download=1 to save)
 ```

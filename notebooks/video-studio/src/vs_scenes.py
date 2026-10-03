@@ -42,11 +42,11 @@ STYLES = {
 LIGHT = {"paper", "swiss"}
 SIZES = {"landscape": (1920, 1080), "reel": (1080, 1920)}
 LABELS = {
-    "en": {"latest": "LATEST", "numbers": "By the numbers", "source": "Source", "photo": "Photo", "thanks": "Thanks for watching", "where": "Where"},
-    "ne": {"latest": "ताजा समाचार", "numbers": "तथ्यांकमा", "source": "स्रोत", "photo": "तस्बिर", "thanks": "हेर्नुभएकोमा धन्यवाद", "where": "घटनास्थल"},
-    "hi": {"latest": "ताज़ा ख़बर", "numbers": "आँकड़ों में", "source": "स्रोत", "photo": "फ़ोटो", "thanks": "देखने के लिए धन्यवाद", "where": "स्थान"},
-    "es": {"latest": "ÚLTIMA HORA", "numbers": "En cifras", "source": "Fuente", "photo": "Foto", "thanks": "Gracias por ver", "where": "Dónde"},
-    "fr": {"latest": "DERNIÈRE MINUTE", "numbers": "En chiffres", "source": "Source", "photo": "Photo", "thanks": "Merci d'avoir regardé", "where": "Où"},
+    "en": {"latest": "LATEST", "numbers": "By the numbers", "source": "Source", "photo": "Photo", "thanks": "Thanks for watching", "where": "Where", "video": "Video"},
+    "ne": {"latest": "ताजा समाचार", "numbers": "तथ्यांकमा", "source": "स्रोत", "photo": "तस्बिर", "thanks": "हेर्नुभएकोमा धन्यवाद", "where": "घटनास्थल", "video": "भिडियो"},
+    "hi": {"latest": "ताज़ा ख़बर", "numbers": "आँकड़ों में", "source": "स्रोत", "photo": "फ़ोटो", "thanks": "देखने के लिए धन्यवाद", "where": "स्थान", "video": "वीडियो"},
+    "es": {"latest": "ÚLTIMA HORA", "numbers": "En cifras", "source": "Fuente", "photo": "Foto", "thanks": "Gracias por ver", "where": "Dónde", "video": "Vídeo"},
+    "fr": {"latest": "DERNIÈRE MINUTE", "numbers": "En chiffres", "source": "Source", "photo": "Photo", "thanks": "Merci d'avoir regardé", "where": "Où", "video": "Vidéo"},
 }
 DEVANAGARI_LANGS = {"ne", "hi", "mr", "sa", "mai", "bho", "new"}
 GRAIN = ("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'>"
@@ -430,7 +430,7 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
     bg = '<div class="blob a"></div><div class="blob b"></div>'
     credit = ""
     if photo and photo.get("credit"):
-        credit = '<div class="credit">%s: %s</div>' % (esc(L["photo"]), esc(photo["credit"]))
+        credit = '<div class="credit">%s: %s</div>' % (esc(L["video"] if photo.get("frames") else L["photo"]), esc(photo["credit"]))
     kicker = scene.get("kicker") or ""
     body = ""
     if lay in ("title", "headline"):

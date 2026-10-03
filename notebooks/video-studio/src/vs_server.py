@@ -20,6 +20,9 @@ import sys
 import threading
 import time
 import traceback
+import re
+import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -118,7 +121,8 @@ def public(job, full=False):
             out["storyboard"] = sb
         photos = K.read_json(os.path.join(d, "photos.json"), []) or []
         out["photos"] = [{"index": i, "url": "/api/jobs/%s/files/photos/%s" % (job["id"], os.path.basename(p["path"])),
-                          "caption": p.get("caption"), "description": p.get("description"), "kind": p.get("kind") or "link",
+                          "caption": p.get("caption"), "description": p.get("description"), "kind": p.get("kind") or "page",
+                          "credit": p.get("credit") if "credit" in p else None, "source": p.get("url") or None,
                           "video": "/api/jobs/%s/files/photos/%s" % (job["id"], os.path.basename(p["clip"])) if p.get("clip") else None}
                          for i, p in enumerate(photos)]
         out["images"] = {str(i): "/api/jobs/%s/files/%s/%s" % (job["id"], os.path.basename(os.path.dirname(p)), os.path.basename(p))
@@ -373,8 +377,8 @@ def run_job(job):
         p = sc.get("photo", -1)
         if 0 <= p < len(photos):
             ph = photos[p]
-            visuals[i] = {"path": ph["path"], "w": ph["w"], "h": ph["h"],
-                          "credit": "" if ph.get("kind") in ("upload", "video") else credit}
+            visuals[i] = {"path": ph["path"], "w": ph["w"], "h": ph["h"],     # links credit their own site
+                          "credit": ph["credit"] if "credit" in ph else credit}
             if ph.get("frames_dir"):                    # the user's own video clip
                 visuals[i].update(frames=MO.frames_in(ph["frames_dir"]), fps=ph.get("fps", 24))
     if IMAGE_MODEL and not news:
@@ -532,9 +536,73 @@ def wait(jid, seconds):
 ASSET_LIMIT = 200 << 20
 
 
+def _site_name(url):
+    return (urllib.parse.urlparse(url).hostname or "").lower().replace("www.", "")
+
+
+def _download(url, dest):
+    req = urllib.request.Request(url, headers={"User-Agent": SRC.UA, "Accept": "image/*,video/*,text/html,*/*;q=0.5"})
+    with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
+        ctype = r.headers.get("Content-Type", "")
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
+            if f.tell() > ASSET_LIMIT:
+                raise ValueError("that file is larger than 200 MB")
+        return ctype, r.geturl()
+
+
+def fetch_link_asset(url, dest):
+    """Downloads the picture or video behind a link and works out its credit. Handles a direct image / video file,
+    a video page yt-dlp knows (YouTube, Vimeo, Facebook... first 10 s), or any web page (its og:video or og:image,
+    credited to the page's site name). Returns (credit, source page URL)."""
+    if not re.match(r"^https?://", url or ""):
+        raise ValueError("paste a full link starting with http:// or https://")
+    if SRC.YT.match(url) or re.search(r"(vimeo\.com|facebook\.com/.+/videos|fb\.watch|tiktok\.com|x\.com/.+/status|"
+                                      r"twitter\.com/.+/status|instagram\.com/(reel|p)/)", url, re.I):
+        if not shutil.which("yt-dlp"):
+            raise ValueError("video links need yt-dlp (installed by the notebook's install cell)")
+        info = os.path.join(os.path.dirname(dest), "ytdlp_%s" % uuid.uuid4().hex[:6])
+        p = subprocess.run(["yt-dlp", "--no-playlist", "-f", "bv*[height<=1080][ext=mp4]/bv*[height<=1080]/b",
+                            "--download-sections", "*0-10", "--force-keyframes-at-cuts", "--print-json", "--no-progress",
+                            "-o", info + ".%(ext)s", url], capture_output=True, text=True, timeout=600)
+        files = [f for f in os.listdir(os.path.dirname(dest)) if f.startswith(os.path.basename(info)) and not f.endswith(".part")]
+        if p.returncode != 0 or not files:
+            raise ValueError("could not get that video: %s" % ((p.stderr.strip().splitlines() or ["?"])[-1])[:200])
+        shutil.move(os.path.join(os.path.dirname(dest), files[0]), dest)
+        meta = {}
+        try:
+            meta = json.loads(p.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            pass
+        who = meta.get("channel") or meta.get("uploader") or ""
+        site = meta.get("extractor_key") or _site_name(url)
+        return (" · ".join(x for x in (who, site) if x) or _site_name(url)), meta.get("webpage_url") or url
+    ctype, final = _download(url, dest)
+    if "html" not in ctype.lower():
+        return _site_name(final), final                 # a direct picture or video file
+    raw = open(dest, "rb").read().decode("utf-8", "replace")
+    pg = SRC._Page(final)
+    pg.feed(raw)
+    pg.close()
+    media = pg.meta.get("og:video:secure_url") or pg.meta.get("og:video:url") or pg.meta.get("og:video") or ""
+    if media and not re.search(r"\.(mp4|webm|mov)(\?|$)", media, re.I):
+        media = ""                                      # an embed page, not a file
+    media = media or pg.meta.get("og:image") or pg.meta.get("twitter:image") or ""
+    if not media:
+        imgs = SRC.harvest_images(pg, final)
+        media = imgs[0]["url"] if imgs else ""
+    if not media:
+        raise ValueError("that page has no picture or video to use")
+    _download(urllib.parse.urljoin(final, media), dest)
+    return pg.meta.get("og:site_name") or _site_name(final), final
+
+
 def add_asset(jid, data_iter=None, url=None, name=""):
-    """Adds the user's own picture or video clip to a job's photos; returns its index. Videos keep up to 10 s,
-    cut into 24 fps frames that the scene plays exactly; pictures are checked and lightly edited like link photos."""
+    """Adds the user's own picture or video clip, or one behind a link (credited automatically), to a job's photos;
+    returns its index. Videos keep up to 10 s, cut into 24 fps frames that the scene plays exactly."""
     d = jdir(jid)
     job = load(jid)
     if job["state"] in ("queued", "running"):
@@ -542,18 +610,14 @@ def add_asset(jid, data_iter=None, url=None, name=""):
     pdir = os.path.join(d, "photos")
     os.makedirs(pdir, exist_ok=True)
     tmp = os.path.join(pdir, "upload_%s.tmp" % uuid.uuid4().hex[:8])
-    with open(tmp, "wb") as f:
-        if url:
-            req = urllib.request.Request(url, headers={"User-Agent": SRC.UA})
-            with urllib.request.urlopen(req, timeout=60) as r:
-                while True:
-                    chunk = r.read(1 << 20)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    if f.tell() > ASSET_LIMIT:
-                        raise ValueError("that file is larger than 200 MB")
-        else:
+    credit, source = "", ""
+    if url:
+        try:
+            credit, source = fetch_link_asset(url.strip(), tmp)
+        except urllib.error.URLError as e:
+            raise ValueError("could not open that link (%s)" % getattr(e, "reason", e))
+    else:
+        with open(tmp, "wb") as f:
             for chunk in data_iter:
                 f.write(chunk)
     photos = K.read_json(os.path.join(d, "photos.json"), []) or []
@@ -564,7 +628,8 @@ def add_asset(jid, data_iter=None, url=None, name=""):
         im.thumbnail((2400, 2400))
         path = os.path.join(pdir, "upload_%02d.jpg" % k)
         im.save(path, "JPEG", quality=92)
-        entry = {"path": path, "w": im.size[0], "h": im.size[1], "caption": "", "alt": name, "url": url or "", "kind": "upload"}
+        entry = {"path": path, "w": im.size[0], "h": im.size[1], "caption": "", "alt": name, "url": source,
+                 "kind": "link" if url else "upload", "credit": credit}
         os.remove(tmp)
     except Exception:
         probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
@@ -588,8 +653,8 @@ def add_asset(jid, data_iter=None, url=None, name=""):
         poster = os.path.join(pdir, "clip_%02d.jpg" % k)
         shutil.copy(frames[min(len(frames) - 1, 12)], poster)
         w, hh = Image.open(poster).size
-        entry = {"path": poster, "w": w, "h": hh, "caption": "", "alt": name, "url": url or "", "kind": "video",
-                 "clip": clip, "frames_dir": fdir, "fps": 24}
+        entry = {"path": poster, "w": w, "h": hh, "caption": "", "alt": name, "url": source, "kind": "video",
+                 "clip": clip, "frames_dir": fdir, "fps": 24, "credit": credit}
     photos.append(entry)
     K.write_json(os.path.join(d, "photos.json"), photos)
     return {"index": k, "kind": entry["kind"], "photos": public(load(jid), full=True)["photos"]}
@@ -688,7 +753,10 @@ def build_app():
 
     @app.route("POST", r"/api/jobs/(?P<j>[\w-]+)/assets")
     def _asset(req):
-        """The raw picture or video file as the body (any image type, or mp4 / mov / webm up to 200 MB)."""
+        """The raw picture or video file as the body (any image type, or mp4 / mov / webm up to 200 MB), or
+        ?url=<link> to fetch it from a link with automatic credit."""
+        if req.arg("url"):
+            return add_asset(req.params["j"], url=req.arg("url"))
         return add_asset(req.params["j"], req.iter_body(limit=ASSET_LIMIT), name=req.arg("name", "") or "")
 
     @app.route("POST", r"/api/jobs/(?P<j>[\w-]+)/delete")
@@ -752,9 +820,11 @@ def build_app():
         storyboard = {k: v for k, v in storyboard.items() if k != "photos"}
         return {"storyboard": set_storyboard(job_id, storyboard, render), "state": load(job_id)["state"]}
 
-    @app.tool("add_asset", "Add a picture or a short video clip (mp4/mov/webm, first 10 s used) from a URL to a job's "
-              "photos, then use its index as a scene's photo in update_storyboard. Uploads from disk: POST the raw file to "
-              "/api/jobs/<id>/assets.", {"job_id": {"type": "string"}, "url": {"type": "string"}}, ["job_id", "url"])
+    @app.tool("add_asset", "Add a picture or a short video clip to a job's photos from a link, credited on screen "
+              "automatically: a direct image/video file (credited to its site), a video page such as YouTube or Vimeo "
+              "(first 10 s, credited to the channel), or any web page (its main picture or video, credited to the site "
+              "name). Then use the returned index as a scene's photo in update_storyboard. Files from disk: POST the raw "
+              "file to /api/jobs/<id>/assets.", {"job_id": {"type": "string"}, "url": {"type": "string"}}, ["job_id", "url"])
     def t_asset(job_id, url):
         return add_asset(job_id, url=url)
 
