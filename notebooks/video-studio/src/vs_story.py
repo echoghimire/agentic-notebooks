@@ -1,68 +1,104 @@
-"""Storyboard: the JSON the local LLM writes, its validation, and a fallback that needs no LLM.
+"""Storyboard: the JSON the local LLM writes, its validation (including the language and script), and a
+fallback built from the source's own sentences when the model fails.
 
 storyboard = {
-  "title": "...", "tagline": "...",
-  "music_prompt": "upbeat electronic, 110 bpm ...",
-  "scenes": [{"layout": "title|bullets|image|stats|code|quote|outro", "heading": "...", "bullets": [...],
-              "narration": "...", "image_prompt": "...", "code": "...", "quote": "...",
-              "stats": [{"value": "12.3k", "label": "stars"}]}]
+  "title", "tagline", "language": "ne", "category": "news|tech|education|story|promo|other",
+  "tone": "tragic|serious|neutral|upbeat|inspiring", "music_prompt": "...",
+  "scenes": [{"layout": "headline|photo|bullets|stats|code|quote|outro", "heading", "kicker", "bullets": [...],
+              "narration", "photo": <index into the source photos or -1>, "image_prompt", "code", "quote",
+              "stats": [{"value", "label"}]}]
 }
-The model never writes HTML: templates in vs_scenes.py animate whatever it puts in these fields.
+The model never writes HTML: vs_scenes.py animates whatever it puts in these fields.
 """
 import json
 import re
 import urllib.request
 
-LAYOUTS = ("title", "bullets", "image", "stats", "code", "quote", "outro")
-LENGTHS = {30: (4, 5), 60: (6, 8), 90: (8, 11)}
-WORDS_PER_SECOND = 2.4
+LAYOUTS = ("headline", "photo", "bullets", "stats", "code", "quote", "outro")
+ALIASES = {"title": "headline", "image": "photo", "intro": "headline", "end": "outro"}
+LENGTHS = {15: (2, 3), 30: (4, 5), 60: (6, 8), 90: (8, 11)}
+WPS = {"en": 2.5, "ne": 2.0, "hi": 2.2}            # spoken words per second
+LANGS = {"en": ("English", "English", ""), "ne": ("Nepali", "नेपाली", ", in Devanagari script"),
+         "hi": ("Hindi", "हिन्दी", ", in Devanagari script"), "es": ("Spanish", "español", ""),
+         "fr": ("French", "français", ""), "it": ("Italian", "italiano", ""), "pt": ("Portuguese", "português", ""),
+         "bn": ("Bengali", "বাংলা", ", in Bengali script"), "ur": ("Urdu", "اردو", ", in Urdu script")}
+DEVANAGARI = {"ne", "hi", "mr", "sa", "mai"}
+CATEGORIES = ("news", "tech", "education", "story", "promo", "other")
+TONES = ("tragic", "serious", "neutral", "upbeat", "inspiring")
 
-PROMPT = """You are a video scriptwriter. Turn the SOURCE below into a {length}-second explainer video storyboard.
+PROMPT = """You are an experienced {role}. Turn the SOURCE below into a {length}-second video storyboard
+(it will be rendered both as a vertical reel and as a landscape video).
 
-Return ONLY a JSON object with this shape:
+LANGUAGE: write every "title", "tagline", "heading", "kicker", "bullets", "quote" and "narration" in {lang_name}
+({lang_native}){script}. Never use any other language or script for those fields. Only "image_prompt" and
+"music_prompt" are written in English.
+
+Return ONLY a JSON object:
 {{
-  "title": "short video title (max 8 words)",
-  "tagline": "one-line hook (max 14 words)",
-  "music_prompt": "background music description: genre, mood, tempo, instruments (no vocals)",
+  "title": "video title, max 9 words",
+  "tagline": "one-line summary, max 16 words",
+  "category": one of "news", "tech", "education", "story", "promo", "other",
+  "tone": one of "tragic", "serious", "neutral", "upbeat", "inspiring",
+  "music_prompt": "background music in English: genre, mood, tempo, instruments, no vocals",
   "scenes": [
     {{
-      "layout": one of "title", "bullets", "image", "stats", "code", "quote", "outro",
-      "heading": "on-screen heading, max 7 words",
-      "bullets": ["2-4 short on-screen points, max 9 words each (bullets layout only)"],
-      "narration": "what the voice says during this scene: 1-3 natural sentences, max 40 words",
-      "image_prompt": "a vivid illustration for this scene: subject, style, lighting; no text, no logos, no people's faces",
-      "code": "a short real snippet from the source, max 8 lines (code layout only, else empty)",
-      "quote": "one striking sentence from the source (quote layout only, else empty)"
+      "layout": one of "headline", "photo", "bullets", "stats", "quote", "code", "outro",
+      "heading": "on-screen headline for this scene, max 8 words",
+      "kicker": "tiny label above it, e.g. a place and date, max 4 words (may be empty)",
+      "bullets": ["for bullets: 2-4 points, max 9 words each; for photo: one optional sub-line"],
+      "narration": "what the voice says during this scene: 1-3 natural spoken sentences, max {max_words} words",
+      "photo": index of the PHOTOS entry that fits this scene best, or -1,
+      "image_prompt": "only if no photo fits and the topic is not a real news event: an illustration idea, else empty",
+      "code": "code layout only: a short real snippet from the source",
+      "quote": "quote layout only: a sentence that appears in the source"
     }}
   ]
 }}
 
 Rules:
-- {n_min} to {n_max} scenes. The first scene uses layout "title", the last uses layout "outro".
-- Use "bullets" for most middle scenes; use "image" for a visual moment, "code" only if the source has real code
-  (install commands count), "quote" only for a sentence that really appears in the source.{stats_rule}
-- Narration in total about {words} words, spoken, friendly and concrete. Never read URLs aloud.
-- Every fact must come from the SOURCE. Do not invent numbers, names or features.
-- Write in the language of the SOURCE.{extra}
+- {n_min} to {n_max} scenes. The first scene uses layout "headline", the last uses layout "outro".
+- Narration in total about {words} words, so it fits {length} seconds. Spoken, clear and concrete.
+- {photo_rule}
+- Every fact must come from the SOURCE: never invent numbers, names, places, quotes or causes.{news_rule}{stats_rule}{extra}
+
+PHOTOS:
+{photos}
 
 SOURCE ({kind}):
 {text}
 """
 
 
-def build_prompt(src, length):
+def lang_info(lang):
+    return LANGS.get(lang, (lang, lang, ""))
+
+
+def build_prompt(src, length, lang, photos):
     n_min, n_max = LENGTHS.get(length, LENGTHS[60])
+    name, native, script = lang_info(lang)
+    words = int(length * WPS.get(lang, 2.3))
+    role = {"github": "tech video producer", "youtube": "video editor", "pdf": "explainer video producer"}.get(
+        src["kind"], "news and explainer video producer")
+    photo_rule = ("Prefer \"photo\" scenes built on the PHOTOS, and give each scene its own photo when there are "
+                  "enough. Pick the photo whose description matches the scene." if photos else
+                  "There are no photos; use \"bullets\" and \"quote\" scenes, and image prompts only for non-news topics.")
+    news_rule = ("\n- If this is news about real people: be factual, neutral and respectful; attribute claims (\"police said\"); "
+                 "no speculation, no graphic detail, no dramatic adjectives; image_prompt must be empty.")
     stats_rule = ("\n- Do not add a \"stats\" scene: one with the real numbers is added automatically."
-                  if src["kind"] in ("github", "youtube") else "")
+                  if src["kind"] in ("github", "youtube") else "\n- Use \"stats\" only for numbers stated in the SOURCE.")
     extra = ("\n- The user asked: " + src["instructions"]) if src.get("instructions") else ""
-    return PROMPT.format(length=length, n_min=n_min, n_max=n_max, words=int(length * WORDS_PER_SECOND),
-                         stats_rule=stats_rule, extra=extra, kind=src["kind"], text=src["text"])
+    plist = "\n".join("[%d] %s" % (i, p.get("description") or p.get("caption") or p.get("alt") or "(no description)")
+                      for i, p in enumerate(photos)) or "(none)"
+    return PROMPT.format(role=role, length=length, lang_name=name, lang_native=native, script=script,
+                         max_words=45 if length > 15 else 30, n_min=n_min, n_max=n_max, words=words, photo_rule=photo_rule,
+                         news_rule=news_rule, stats_rule=stats_rule, extra=extra, photos=plist, kind=src["kind"],
+                         text=src["text"])
 
 
-def ollama_json(url, model, prompt, keep_alive="10m", timeout=600):
+def ollama_json(url, model, prompt, keep_alive="10m", timeout=900):
     body = json.dumps({"model": model, "stream": False, "format": "json", "keep_alive": keep_alive,
                        "messages": [{"role": "user", "content": prompt}],
-                       "options": {"temperature": 0.6, "num_ctx": 16384}}).encode()
+                       "options": {"temperature": 0.5, "num_ctx": 16384}}).encode()
     req = urllib.request.Request(url.rstrip("/") + "/api/chat", data=body, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         content = json.loads(r.read())["message"]["content"]
@@ -81,6 +117,25 @@ def _s(v, n):
 def _words(v, n):
     w = str(v or "").split()
     return " ".join(w[:n]) + ("…" if len(w) > n else "")
+
+
+def script_check(sb, lang):
+    """Raises ValueError when the on-screen text and narration are not in the expected script."""
+    text = " ".join([sb.get("title") or ""] + [" ".join([sc.get("heading") or "", sc.get("narration") or ""] + list(sc.get("bullets") or []))
+                                               for sc in sb.get("scenes", []) if isinstance(sc, dict)])
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        raise ValueError("the storyboard has no text")
+    cjk = sum(1 for c in letters if "぀" <= c <= "鿿") / len(letters)
+    deva = sum(1 for c in letters if "ऀ" <= c <= "ॿ") / len(letters)
+    latin = sum(1 for c in letters if c.isascii() or "À" <= c <= "ɏ") / len(letters)
+    name = lang_info(lang)[0]
+    if lang not in ("zh", "ja") and cjk > 0.02:
+        raise ValueError("the text drifted into Chinese/Japanese instead of %s" % name)
+    if lang in DEVANAGARI and deva < 0.6:
+        raise ValueError("the text is not in %s (Devanagari); only %d%% Devanagari" % (name, deva * 100))
+    if lang in ("en", "es", "fr", "it", "pt") and latin < 0.8:
+        raise ValueError("the text is not in %s" % name)
 
 
 def stats_for(src):
@@ -109,8 +164,34 @@ def stats_narration(src):
     return ""
 
 
-def clean(sb, src, length):
-    """Validates and repairs a model storyboard; raises ValueError if nothing usable is left."""
+def _scene(sc, n_photos):
+    layout = str(sc.get("layout") or "bullets").lower().strip()
+    layout = ALIASES.get(layout, layout)
+    layout = layout if layout in LAYOUTS else "bullets"
+    bullets = [_s(b, 90) for b in (sc.get("bullets") or []) if isinstance(b, (str, int, float)) and str(b).strip()][:4]
+    try:
+        photo = int(sc.get("photo", -1))
+    except (TypeError, ValueError):
+        photo = -1
+    out = {"layout": layout, "heading": _s(sc.get("heading"), 80), "kicker": _s(sc.get("kicker"), 40), "bullets": bullets,
+           "narration": _words(sc.get("narration"), 60), "image_prompt": _s(sc.get("image_prompt"), 300),
+           "photo": photo if 0 <= photo < n_photos else -1,
+           "code": "\n".join(str(sc.get("code") or "").splitlines()[:10])[:600], "quote": _s(sc.get("quote"), 220), "stats": []}
+    if layout == "stats":
+        out["stats"] = [{"value": _s(x.get("value"), 20), "label": _s(x.get("label"), 30)} for x in (sc.get("stats") or [])
+                        if isinstance(x, dict) and x.get("value")][:3]
+    if layout == "bullets" and not bullets:
+        out["layout"] = "photo" if out["photo"] >= 0 else "quote"
+        out["quote"] = out["quote"] or out["narration"]
+    if layout == "code" and not out["code"].strip():
+        out["layout"] = "bullets" if bullets else "photo"
+    if layout == "quote" and not out["quote"]:
+        out["layout"] = "bullets" if bullets else "photo"
+    return out
+
+
+def clean(sb, src, length, lang, n_photos=0, keep_stats=False):
+    """Validates and repairs a storyboard; raises ValueError if nothing usable is left."""
     if not isinstance(sb, dict) or not isinstance(sb.get("scenes"), list):
         raise ValueError("storyboard must be an object with a scenes list")
     n_min, n_max = LENGTHS.get(length, LENGTHS[60])
@@ -118,95 +199,96 @@ def clean(sb, src, length):
     for sc in sb["scenes"]:
         if not isinstance(sc, dict):
             continue
-        layout = str(sc.get("layout") or "bullets").lower().strip()
-        layout = layout if layout in LAYOUTS else "bullets"
-        bullets = [_s(b, 80) for b in (sc.get("bullets") or []) if isinstance(b, (str, int, float)) and str(b).strip()][:4]
-        out = {"layout": layout, "heading": _s(sc.get("heading"), 70), "bullets": bullets,
-               "narration": _words(sc.get("narration"), 60), "image_prompt": _s(sc.get("image_prompt"), 300),
-               "code": "\n".join(str(sc.get("code") or "").splitlines()[:10])[:600],
-               "quote": _s(sc.get("quote"), 220), "stats": []}
-        if layout == "bullets" and not bullets:
-            out["layout"] = "image" if out["image_prompt"] else "quote"
-            out["quote"] = out["quote"] or out["narration"]
-        if layout == "code" and not out["code"].strip():
-            out["layout"] = "bullets" if bullets else "image"
-        if layout == "quote" and not out["quote"]:
-            out["layout"] = "bullets" if bullets else "image"
-        if layout == "stats":
-            continue                                   # real numbers only: added below
+        out = _scene(sc, n_photos)
+        if out["layout"] == "stats" and not (keep_stats and out["stats"]):
+            continue                                   # only real numbers: added below from the source facts
         if not out["heading"] and not out["narration"]:
             continue
         scenes.append(out)
-    if len(scenes) < 2:
-        raise ValueError("storyboard has fewer than 2 usable scenes")
-    if scenes[0]["layout"] != "title":
-        scenes.insert(0, {"layout": "title", "heading": "", "bullets": [], "narration": "", "image_prompt": scenes[0]["image_prompt"],
-                          "code": "", "quote": "", "stats": []})
+    if len(scenes) < (1 if length <= 15 else 2):
+        raise ValueError("storyboard has too few usable scenes")
+    blank = {"heading": "", "kicker": "", "bullets": [], "narration": "", "image_prompt": "", "photo": -1, "code": "", "quote": "", "stats": []}
+    if scenes[0]["layout"] != "headline":
+        scenes.insert(0, dict(blank, layout="headline", photo=scenes[0]["photo"], image_prompt=scenes[0]["image_prompt"]))
     if scenes[-1]["layout"] != "outro":
-        scenes.append({"layout": "outro", "heading": "", "bullets": [], "narration": "", "image_prompt": "",
-                       "code": "", "quote": "", "stats": []})
+        scenes.append(dict(blank, layout="outro"))
     for sc in scenes[1:-1]:
-        if sc["layout"] in ("title", "outro"):
-            sc["layout"] = "bullets" if sc["bullets"] else "image"
+        if sc["layout"] in ("headline", "outro"):
+            sc["layout"] = "bullets" if sc["bullets"] else "photo"
     stats = stats_for(src)
-    if stats:
-        scenes.insert(min(2, len(scenes) - 1), {"layout": "stats", "heading": "By the numbers", "bullets": [],
-                                                "narration": stats_narration(src), "image_prompt": "", "code": "",
-                                                "quote": "", "stats": stats})
-    while len(scenes) > n_max + 1:                     # keep title/outro, drop from the middle
+    if stats and not any(s["layout"] == "stats" for s in scenes) and length > 15:
+        scenes.insert(min(2, len(scenes) - 1), dict(blank, layout="stats", heading="", narration=stats_narration(src), stats=stats))
+    while len(scenes) > n_max + 1:                     # keep headline/outro, drop from the middle
         scenes.pop(-2)
-    title = _s(sb.get("title") or src["title"], 80)
-    sb2 = {"title": title, "tagline": _s(sb.get("tagline") or src.get("description"), 120),
-           "music_prompt": _s(sb.get("music_prompt") or "light upbeat electronic background music, no vocals", 200),
+    cat = str(sb.get("category") or "").lower()
+    tone = str(sb.get("tone") or "").lower()
+    title = _s(sb.get("title") or src["title"], 90)
+    out = {"title": title, "tagline": _s(sb.get("tagline") or src.get("description"), 140), "language": lang,
+           "category": cat if cat in CATEGORIES else ("news" if src["kind"] == "article" else "other"),
+           "tone": tone if tone in TONES else "neutral",
+           "music_prompt": _s(sb.get("music_prompt") or "light background music, no vocals", 200),
            "scenes": scenes, "source": {k: src.get(k) for k in ("kind", "url", "title", "facts")}}
-    t, o = scenes[0], scenes[-1]
-    t["heading"] = t["heading"] or title
-    t["narration"] = t["narration"] or sb2["tagline"] or title
-    o["heading"] = o["heading"] or title
-    o["narration"] = o["narration"] or "Thanks for watching."
-    return sb2
+    if out["category"] == "news" or out["tone"] in ("tragic", "serious"):
+        for sc in scenes:
+            sc["image_prompt"] = ""                    # never invent pictures of real events
+        if out["tone"] in ("tragic", "serious"):
+            out["music_prompt"] = "soft slow ambient pad, minimal, somber, warm, no drums, no vocals"
+    h, o = scenes[0], scenes[-1]
+    h["heading"] = h["heading"] or title
+    h["narration"] = h["narration"] or out["tagline"] or title
+    o["heading"] = o["heading"] or ""
+    o["narration"] = o["narration"] or ""
+    return out
 
 
-def fallback(src, length):
-    """A plain storyboard straight from the source, for when the model fails."""
-    paras = [p.strip() for p in re.split(r"\n\s*\n", src["text"]) if len(p.split()) >= 8]
-    heads = [ln[3:].strip() for ln in src["text"].splitlines() if ln.startswith("## ")]
+def sentences(text):
+    return [s.strip() for s in re.split(r"(?<=[.!?।॥])\s+", text) if len(s.split()) >= 4]
+
+
+def fallback(src, length, lang, n_photos=0):
+    """A plain storyboard straight from the source's own sentences (so it is always in the right language)."""
+    body = re.sub(r"^(Title|Site|Date|Author|Summary):.*$", "", src["text"], flags=re.M)
+    sents = sentences(body)
     n = LENGTHS.get(length, LENGTHS[60])[1] - 2
-    scenes = [{"layout": "title", "heading": src["title"], "narration": src.get("description") or src["title"],
-               "image_prompt": "abstract technology illustration, soft gradient light, minimal"}]
-    for i, p in enumerate(paras[:n]):
-        sents = re.split(r"(?<=[.!?])\s+", p)
-        scenes.append({"layout": "bullets", "heading": heads[i] if i < len(heads) else "Key point %d" % (i + 1),
-                       "bullets": [_s(s, 80) for s in sents[:3]], "narration": _words(" ".join(sents[:2]), 40),
-                       "image_prompt": "illustration about: " + _s(sents[0], 120)})
-    scenes.append({"layout": "outro", "heading": src["title"], "narration": "Thanks for watching."})
-    return clean({"title": src["title"], "tagline": src.get("description"), "scenes": scenes}, src, length)
+    per = max(1, min(3, len(sents) // max(1, n)))
+    scenes = [{"layout": "headline", "heading": src["title"], "narration": src.get("description") or (sents[0] if sents else src["title"]),
+               "photo": 0 if n_photos else -1}]
+    for i in range(max(1, n)):
+        chunk = sents[1 + i * per: 1 + (i + 1) * per]
+        if not chunk:
+            break
+        first = chunk[0].split()
+        scenes.append({"layout": "photo" if n_photos else "bullets", "heading": " ".join(first[:8]) + ("…" if len(first) > 8 else ""),
+                       "bullets": [_s(s, 90) for s in chunk[1:3]] or [_s(chunk[0], 90)], "narration": _words(" ".join(chunk), 40),
+                       "photo": (i + 1) % n_photos if n_photos else -1})
+    scenes.append({"layout": "outro", "heading": src["title"], "narration": ""})
+    return clean({"title": src["title"], "tagline": src.get("description"), "category": "news" if src["kind"] == "article" else "other",
+                  "scenes": scenes}, src, length, lang, n_photos)
 
 
-def write_storyboard(src, length, ollama_url, model, keep_alive="10m", log=None):
-    prompt = build_prompt(src, length)
-    last = None
-    for attempt in range(2):
+def write_storyboard(src, length, lang, ollama_url, model, keep_alive="10m", photos=(), log=None):
+    prompt = build_prompt(src, length, lang, photos)
+    last, nudge = None, ""
+    for attempt in range(3):
         try:
-            return clean(ollama_json(ollama_url, model, prompt, keep_alive), src, length), None
+            sb = clean(ollama_json(ollama_url, model, prompt + nudge, keep_alive), src, length, lang, len(photos))
+            script_check(sb, lang)
+            return sb, None
         except Exception as e:
             last = e
             if log:
                 log.warning("storyboard attempt %d failed: %s", attempt + 1, e)
-    return fallback(src, length), "the model's storyboard was unusable (%s); used a plain one instead" % last
+            name, native, script = lang_info(lang)
+            nudge = ("\n\nYOUR PREVIOUS ANSWER WAS REJECTED: %s. Answer again with valid JSON, every text field in %s (%s)%s."
+                     % (str(e)[:200], name, native, script))
+    return fallback(src, length, lang, len(photos)), "the model's script was unusable (%s); used the article's own sentences" % last
 
 
-def validate_user_storyboard(sb, src, length):
-    """For storyboards edited in the page or sent by an agent: same repairs, but keep their stats scenes."""
-    stats = [sc for sc in sb.get("scenes", []) if isinstance(sc, dict) and sc.get("layout") == "stats"]
-    out = clean(dict(sb, scenes=[sc for sc in sb.get("scenes", []) if not (isinstance(sc, dict) and sc.get("layout") == "stats")]),
-                dict(src, kind="prompt"), length)
-    for sc in stats:
-        st = [{"value": _s(x.get("value"), 20), "label": _s(x.get("label"), 30)} for x in sc.get("stats", [])
-              if isinstance(x, dict) and x.get("value")][:3]
-        if st:
-            out["scenes"].insert(min(2, len(out["scenes"]) - 1), {
-                "layout": "stats", "heading": _s(sc.get("heading") or "By the numbers", 70), "bullets": [],
-                "narration": _words(sc.get("narration"), 60), "image_prompt": "", "code": "", "quote": "", "stats": st})
+def validate_user_storyboard(sb, src, length, lang, n_photos):
+    """For storyboards edited in the page or sent by an agent: same repairs, keeping their stats scenes."""
+    out = clean(sb, dict(src, kind="prompt"), length, sb.get("language") or lang, n_photos, keep_stats=True)
     out["source"] = sb.get("source") or out["source"]
+    for k in ("category", "tone", "music_prompt"):
+        if sb.get(k):
+            out[k] = sb[k] if k == "music_prompt" else out[k]
     return out

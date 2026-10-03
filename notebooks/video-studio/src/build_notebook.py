@@ -12,21 +12,22 @@ nb = nbkit.Notebook(APP_DIR)
 nb.md("""
 # Video Studio on Kaggle: any link → narrated video, as landscape and reel
 
-Paste a link (a **GitHub repo**, an **article** or any web page, a **YouTube** video, a **PDF**) or just describe an idea, and get back a narrated explainer video with music, rendered both as **16:9 landscape** and **9:16 reel**. Everything runs on the free Kaggle GPU; no paid APIs.
+Paste a link (a **news article in Nepali or English**, any web page, a **GitHub repo**, a **YouTube** video, a **PDF**) or describe an idea, and get back a narrated video with music, rendered both as **16:9 landscape** and **9:16 reel**. It uses the link's **own photos**, speaks the link's **language** (Nepali and Hindi included), and picks a look from the content: broadcast-style graphics for news, documentary, tech and more. Everything runs on the free Kaggle GPU; no paid APIs.
 
-| Step | Runs on |
-|---|---|
-| Read the source (GitHub API, web page, YouTube subtitles via yt-dlp, PDF text) | CPU |
-| Write the script and storyboard (local LLM, Ollama `qwen2.5:7b`) | GPU 0 |
-| Draw one image per scene (Stable Diffusion XL) and compose background music (MusicGen) | GPU 1 |
-| Narration (Kokoro-82M text-to-speech) | CPU |
-| Animate and render both formats in parallel (headless Chromium + ffmpeg), music ducked under the voice | CPU |
+| Step | Tool | Runs on |
+|---|---|---|
+| Read the link: article text, date, photos and captions | [trafilatura](https://github.com/adbar/trafilatura) + headless Chromium fallback, GitHub API, yt-dlp, pymupdf | CPU |
+| Pick and edit the photos; describe them so each scene gets the right one | Pillow, Gemma 3 vision | CPU / GPU 0 |
+| Write the script in the video's language (checked and retried if it drifts) | Ollama `gemma3:12b` (140+ languages) | GPU 0 |
+| Narration | Indic Parler-TTS (Nepali, Hindi...), Piper (light Nepali), Kokoro (English...) | GPU 1 / CPU |
+| Illustrations only for non-news topics without photos, and background music matched to the tone | SDXL, MusicGen | GPU 1 |
+| Animate (broadcast lower-thirds, kinetic type, film grain, wipes) and render both formats in parallel | headless Chromium + ffmpeg | CPU |
 
-Inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) (Apache 2.0). Here a free local model only fills in a script; ready-made animated templates do the design, so results stay reliable.
+Inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) and [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache 2.0). A local model only fills in a script; ready-made templates do the design, and every frame is rendered exactly.
 
 | Path | What |
 |---|---|
-| `/` | The studio page: paste, pick options, watch progress, play and download both videos, edit the script and re-render |
+| `/` | The studio: paste a link, pick 15/30/60/90 s and formats, watch progress, play and download both videos, edit the script |
 | `/api/*` | JSON API |
 | `/mcp` | MCP server for agents (tools: `make_video`, `get_job`, `get_storyboard`, `update_storyboard`, `render`, `list_jobs`, `delete_job`, `list_options`) |
 
@@ -35,37 +36,42 @@ Inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) (Apache 
 2. **A Cloudflare Tunnel** with a public hostname pointing to `http://localhost:7860`.
 3. **Kaggle secrets** (Add-ons → Secrets, then tick them for this notebook):
    - `VIDEO_TUNNEL_TOKEN`: the tunnel token. Without it everything still runs, only without a public URL.
-   - `VIDEO_UI_PASSWORD` (recommended): browser login is any username + this password; agents send `Authorization: Bearer <password>`. Without it a random password is printed below.
+   - `VIDEO_UI_PASSWORD` (recommended): the password for the studio's sign-in page; agents send `Authorization: Bearer <password>`. Without it a random password is printed below.
    - `GITHUB_TOKEN` (optional): any GitHub token, to lift the API limit of 60 repository lookups an hour.
-4. **Run All.** First run: about 10 minutes (installs + ~12 GB of models). Then a 60-second video takes roughly 6–10 minutes on T4 x2 (images and rendering take most of it); 720p renders about twice as fast.
+4. **Run All.** First run: about 12–15 minutes (installs + ~20 GB of models). Then a 60-second video takes roughly 5–10 minutes on T4 x2; 720p renders about twice as fast.
 
-### Licences
-SDXL 1.0: CreativeML OpenRAIL++ (commercial use allowed). Kokoro-82M: Apache 2.0. Qwen2.5: Apache 2.0. **MusicGen weights are CC-BY-NC 4.0 (non-commercial)**: set `MUSIC_MODEL = ""` for videos you sell or monetise, or add your own music later. Respect the licences of the pages and repos you turn into videos.
+### Licences and responsibility
+Gemma 3: Gemma Terms of Use. Indic Parler-TTS, Kokoro, Qwen: Apache 2.0. Piper: MIT (Nepali voice from the OpenSLR corpus). SDXL: CreativeML OpenRAIL++. **MusicGen weights are CC-BY-NC 4.0 (non-commercial)**: set `MUSIC_MODEL = ""` for monetised videos. **Photos and text from a link belong to their publisher**: the video credits the site, but make sure you may reuse them (for example your own site, or with permission).
 
 Videos are saved in `/kaggle/working/video_studio/jobs/` and disappear when the session ends: download what you want to keep. Logs: `/kaggle/working/logs/`.
 """)
 
 nb.code("""
 # 1. Settings
-LLM_MODEL = "qwen2.5:7b"                                    # "qwen2.5:14b" writes better scripts, slower
-IMAGE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"    # "" = no images (gradient backgrounds only, much faster)
+LLM_MODEL = "gemma3:12b"                                    # writes Nepali well and can look at photos; "gemma3:4b" is faster
+IMAGE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"    # only for non-news topics without photos; "" = never draw
 IMAGE_STEPS = 25
 MUSIC_MODEL = "facebook/musicgen-small"                     # "" = no music (MusicGen weights are non-commercial)
-NARRATION = True                                           # Kokoro text-to-speech
-RENDER_QUALITY = "1080p"                                   # or "720p" (about twice as fast); the page can override it
+NARRATION = True
+INDIC_VOICES = True                                         # Indic Parler-TTS for Nepali / Hindi (~4 GB, own virtualenv)
+RENDER_QUALITY = "1080p"                                    # or "720p" (about twice as fast); the page can override it
 PORT = 7860
 WORK_DIR = "/kaggle/working/video_studio"
 LOG_DIR = "/kaggle/working/logs"
+PARLER_ENV = "/tmp/parler_env"                             # outside /kaggle/working (kept out of the notebook's output)
+PIPER_DIR = "/kaggle/working/piper"
 APP_DIR = %r
 print("Settings saved.")
 """ % APP_DIR)
 
 nb.md("### 2. App files\nThese cells only write files into `APP_DIR`.")
 nb.kit_files()
-for name, title in [("vs_source.py", "Reads any link: GitHub, web pages, YouTube, PDF"),
-                    ("vs_story.py", "Script and storyboard (local LLM), validation and fallback"),
-                    ("vs_scenes.py", "Animated scene templates, landscape and reel, four styles"),
-                    ("vs_media.py", "Images (SDXL), narration (Kokoro), music (MusicGen), audio mix"),
+for name, title in [("vs_source.py", "Reads any link: articles (trafilatura), GitHub, YouTube, PDF; photos and language"),
+                    ("vs_story.py", "Script and storyboard in the video's language, validation and fallback"),
+                    ("vs_scenes.py", "Animated scene templates: broadcast, documentary and more; landscape and reel"),
+                    ("vs_media.py", "Photos, images (SDXL), music (MusicGen), Kokoro voices, audio mix"),
+                    ("vs_tts.py", "Voices by language: Indic Parler-TTS, Piper, Kokoro"),
+                    ("vs_parler_worker.py", "Indic Parler-TTS worker (runs in its own virtualenv)"),
                     ("vs_render.py", "Renderer: headless Chromium frames -> ffmpeg"),
                     ("vs_server.py", "Studio server on port 7860: jobs, API and MCP"),
                     ("vs_ui.html", "Studio page")]:
@@ -74,7 +80,7 @@ for name, title in [("vs_source.py", "Reads any link: GitHub, web pages, YouTube
 nb.code("# 3. Load the helpers\n" + nbkit.setup_cell(APP_DIR, "Notebook"))
 
 nb.code(r'''
-# 4. Install everything (quiet; 5-8 minutes; re-running skips finished steps)
+# 4. Install everything (quiet; 8-12 minutes; re-running skips finished steps)
 import shutil, subprocess
 ''' + nbkit.PIP_KEEP_CORE + r'''
 
@@ -85,11 +91,11 @@ def sh(cmd):
         raise RuntimeError("failed: " + cmd[:100])
 
 os.makedirs(LOG_DIR, exist_ok=True)
-print("System packages (ffmpeg, espeak-ng, fonts)...")
+print("System packages (ffmpeg, espeak-ng, Noto fonts incl. Devanagari)...")
 sh("apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y ffmpeg espeak-ng zstd "
    "fonts-noto-core fonts-noto-mono fonts-dejavu-core > /dev/null")
 print("Python packages...")
-pip_install("playwright", "yt-dlp", "pymupdf", "soundfile", "diffusers", "accelerate", "kokoro>=0.9")
+pip_install("playwright", "yt-dlp", "pymupdf", "soundfile", "diffusers", "accelerate", "kokoro>=0.9", "trafilatura", "piper-tts")
 print("Headless Chromium...")
 sh(sys.executable + " -m playwright install --with-deps chromium > /dev/null")
 if not shutil.which("ollama"):
@@ -97,8 +103,28 @@ if not shutil.which("ollama"):
     sh("curl -fsSL https://ollama.com/install.sh | sh")
 K.ensure_cloudflared()
 
-print("Downloading models (first time only)...")
-from huggingface_hub import snapshot_download
+from huggingface_hub import hf_hub_download, snapshot_download
+print("Nepali voices...")
+os.makedirs(PIPER_DIR, exist_ok=True)
+try:
+    for ext in (".onnx", ".onnx.json"):
+        p = hf_hub_download("rhasspy/piper-voices", "ne/ne_NP/google/medium/ne_NP-google-medium" + ext)
+        shutil.copy(p, os.path.join(PIPER_DIR, "ne_NP-google-medium" + ext))
+except Exception as e:
+    print("  Piper Nepali voice unavailable:", e)
+if INDIC_VOICES and not os.path.exists(PARLER_ENV + "/bin/python"):
+    try:
+        # parler-tts pins its own transformers: a virtualenv that reuses Kaggle's PyTorch keeps it apart
+        sh("%s -m venv --system-site-packages %s" % (sys.executable, PARLER_ENV))
+        sh("%s/bin/pip install -q --disable-pip-version-check git+https://github.com/huggingface/parler-tts.git" % PARLER_ENV)
+    except RuntimeError:
+        print("  Indic Parler-TTS did not install; Nepali uses the Piper voice.")
+        shutil.rmtree(PARLER_ENV, ignore_errors=True)
+if INDIC_VOICES and os.path.exists(PARLER_ENV + "/bin/python"):
+    snapshot_download("ai4bharat/indic-parler-tts")
+    snapshot_download("google/flan-t5-large", allow_patterns=["*.json", "*.model", "tokenizer*"])
+
+print("Image, music and English voice models (first time only)...")
 if IMAGE_MODEL:
     snapshot_download(IMAGE_MODEL, allow_patterns=["*.json", "*.txt", "*fp16.safetensors", "tokenizer*/*"])
     if "xl" in IMAGE_MODEL.lower():
@@ -106,7 +132,7 @@ if IMAGE_MODEL:
 if MUSIC_MODEL:
     snapshot_download(MUSIC_MODEL, ignore_patterns=["*.bin", "*.msgpack", "*.h5"])
 if NARRATION:
-    snapshot_download("hexgrad/Kokoro-82M", allow_patterns=["*.json", "*.pth", "voices/af_heart.pt", "voices/am_michael.pt"])
+    snapshot_download("hexgrad/Kokoro-82M", allow_patterns=["*.json", "*.pth", "voices/*.pt"])
 gpus = K.gpu_info()
 print("Install complete. GPUs:", ", ".join("%d: %s" % (g["index"], g["name"]) for g in gpus) or "none - pick 'GPU T4 x2'")
 ''')
@@ -119,7 +145,7 @@ K.spawn("ollama", ["ollama", "serve"], LOG_DIR + "/ollama.log", env=ollama_env)
 if not K.wait_http("http://127.0.0.1:11434/api/tags", timeout=60, name="ollama"):
     print(K.tail(LOG_DIR + "/ollama.log"))
     raise RuntimeError("Ollama did not start; log above")
-print("Pulling %s (first time ~5 GB)..." % LLM_MODEL)
+print("Pulling %s (first time ~8 GB)..." % LLM_MODEL)
 p = subprocess.run(["ollama", "pull", LLM_MODEL], env=ollama_env, capture_output=True, text=True)
 if p.returncode != 0:
     print(p.stderr[-1500:])
@@ -131,10 +157,12 @@ nb.code(r'''
 # 6. Start the studio on port 7860 (background process). Log: /kaggle/working/logs/video_studio.log
 PASSWORD = K.ui_password("VIDEO_UI_PASSWORD")
 n_gpu = len(K.gpu_info())
+parler_py = PARLER_ENV + "/bin/python" if INDIC_VOICES and os.path.exists(PARLER_ENV + "/bin/python") else ""
 env = dict(os.environ, APP_PASSWORD=PASSWORD, WORK_DIR=WORK_DIR, APP_LOG=LOG_DIR + "/video_studio.log",
-           PYTHONUNBUFFERED="1", OLLAMA_URL="http://127.0.0.1:11434", LLM_MODEL=LLM_MODEL,
-           IMAGE_MODEL=IMAGE_MODEL, IMAGE_STEPS=str(IMAGE_STEPS), MUSIC_MODEL=MUSIC_MODEL,
+           PARLER_LOG=LOG_DIR + "/parler.log", PYTHONUNBUFFERED="1", OLLAMA_URL="http://127.0.0.1:11434",
+           LLM_MODEL=LLM_MODEL, IMAGE_MODEL=IMAGE_MODEL, IMAGE_STEPS=str(IMAGE_STEPS), MUSIC_MODEL=MUSIC_MODEL,
            TTS="1" if NARRATION else "0", TTS_DEVICE="cpu", RENDER_QUALITY=RENDER_QUALITY,
+           PARLER_PYTHON=parler_py, PIPER_DIR=PIPER_DIR,
            MEDIA_DEVICE="cuda:1" if n_gpu > 1 else "cuda:0",
            LLM_KEEP_ALIVE="10m" if n_gpu > 1 else "0",      # one GPU: free the LLM's memory before drawing
            UNLOAD_AFTER="0" if n_gpu > 1 else "1", TOKENIZERS_PARALLELISM="false")
@@ -149,7 +177,8 @@ if not K.wait_http("http://127.0.0.1:%d/health" % PORT, timeout=60, name="video-
     raise RuntimeError("The studio did not start; log above")
 for host in ("127.0.0.1", "[::1]"):
     print(host, "->", "up" if K.wait_http("http://%s:%d/health" % (host, PORT), timeout=3) else "not reachable")
-print("Models load on the first video (1-2 minutes extra).")
+print("Voices:", ", ".join(v for v in K.api_get(PORT, "/api/info", PASSWORD)["voices"]))
+print("Models load on the first video (1-3 minutes extra).")
 ''')
 
 nb.code(r'''

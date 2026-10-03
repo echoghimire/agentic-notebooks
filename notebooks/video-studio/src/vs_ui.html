@@ -4,100 +4,180 @@
 <title>Video Studio</title>
 <link rel="stylesheet" href="/static/kit.css">
 <style>
-#source{min-height:72px;font-size:15px}
-.opts{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-top:10px}
-.layout{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
-@media (max-width:900px){.layout{grid-template-columns:1fr}}
-.jobs{display:flex;flex-direction:column;gap:6px;max-height:75vh;overflow:auto}
-.job{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px;cursor:pointer;background:var(--panel2)}
-.job.on{border-color:var(--accent)}
-.job img{width:64px;height:36px;object-fit:cover;border-radius:4px;background:var(--line)}
-.job .t{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.videos{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
-.videos .v{display:flex;flex-direction:column;gap:6px}
-.videos video{background:#000;border-radius:8px;display:block}
-.v.landscape video{width:min(640px,100%)}.v.reel video{height:420px;max-width:100%}
-.scene{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;display:grid;grid-template-columns:110px 1fr;gap:10px}
-.scene img{width:110px;height:110px;object-fit:cover;border-radius:6px;background:var(--panel2)}
-.scene .noimg{width:110px;height:110px;border-radius:6px;background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
-.scene textarea{min-height:52px}
-.swatch{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Noto Sans Devanagari",sans-serif}
+.bar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+.ham{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:0}
+.ham i{display:block;width:18px;height:2px;background:var(--text);border-radius:2px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px}
+.brand .dot{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#ff5f8a);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}
+.bar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pill{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
+/* drawer */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:40;opacity:0;pointer-events:none;transition:opacity .2s}
+.drawer{position:fixed;top:0;left:0;bottom:0;width:min(340px,88vw);z-index:41;background:var(--panel);border-right:1px solid var(--line);
+ transform:translateX(-102%);transition:transform .22s ease;display:flex;flex-direction:column}
+body.open .scrim{opacity:1;pointer-events:auto}body.open .drawer{transform:none}
+.drawer .head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.drawer .list{flex:1;overflow:auto;padding:8px}
+.drawer .foot{border-top:1px solid var(--line);padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.drawer .foot a,.drawer .foot button{justify-content:flex-start;width:100%}
+.item{display:flex;gap:10px;align-items:center;padding:8px;border-radius:10px;cursor:pointer}
+.item:hover{background:var(--panel2)}.item.on{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.item img,.item .ph{width:72px;height:41px;border-radius:6px;object-fit:cover;background:var(--panel2);flex:none}
+.item .t{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .m{font-size:11.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
+/* create */
+main{max-width:1100px}
+.hero{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.06)}
+.hero textarea{border:0;background:transparent;font-size:17px;min-height:64px;padding:6px 4px;resize:none;outline:none!important}
+.hero .row2{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px;padding-top:12px;border-top:1px solid var(--line)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:transparent;padding:7px 12px;font-size:13px}
+.seg button.on{background:var(--accent);color:#fff}
+.fmt{display:inline-flex;gap:6px}
+.fmt button{gap:6px;padding:6px 10px;font-size:13px}.fmt button.on{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.fmt .ic{display:inline-block;border:2px solid currentColor;border-radius:3px}
+.go{margin-left:auto;padding:10px 20px;font-size:15px;border-radius:12px}
+details.more{margin-top:12px}details.more summary{cursor:pointer;color:var(--muted);font-size:13px}
+.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-top:12px}
+.styles{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.sty{border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;font-size:13px;display:flex;gap:8px;align-items:center;background:var(--panel2)}
+.sty.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
+.sty i{width:18px;height:18px;border-radius:5px;display:inline-block}
+.examples{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.examples button{font-size:12px;padding:4px 10px;border-radius:999px}
+/* job */
+.steps{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.steps span{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.steps span.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,transparent)}
+.steps span.now{color:#fff;background:var(--accent);border-color:var(--accent)}
+.players{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.player{display:flex;flex-direction:column;gap:8px}
+.player video{display:block;background:#000}
+.player.land video{width:min(620px,92vw);border-radius:12px}
+.phone{padding:10px;border-radius:30px;background:#111;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.phone video{height:min(520px,70vh);border-radius:20px;aspect-ratio:9/16}
+.strip{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
+.strip img{height:84px;border-radius:8px;flex:none}
+.scene{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px;display:grid;grid-template-columns:120px 1fr;gap:12px}
+.scene img,.scene .noimg{width:120px;height:120px;object-fit:cover;border-radius:8px;background:var(--panel2)}
+.scene .noimg{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
+.scene textarea{min-height:54px}
+.empty-hero{color:var(--muted);text-align:center;padding:30px 10px}
+@media (max-width:640px){.go{width:100%;margin-left:0}.scene{grid-template-columns:1fr}.scene img,.scene .noimg{width:100%;height:160px}}
 </style></head><body>
-<header class="top"><h1>Video Studio</h1><span class="sub" id="models"></span><div class="right small muted" id="status"></div></header>
-<main>
-<div class="card">
-  <textarea id="source" placeholder="Paste a link (GitHub repo, article, YouTube video, PDF) or describe the video you want. Text after a link becomes instructions, e.g. https://github.com/owner/repo focus on the install steps"></textarea>
-  <div class="opts">
-    <label>Style<select id="style"></select></label>
-    <label>Length<select id="length"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="90">90 s</option></select></label>
-    <label>Voice<select id="voice"></select></label>
-    <label>Quality<select id="quality"><option>1080p</option><option>720p</option></select></label>
-    <label class="inline"><input type="checkbox" id="fl" checked> Landscape 16:9</label>
-    <label class="inline"><input type="checkbox" id="fr" checked> Reel 9:16</label>
-    <label class="inline"><input type="checkbox" id="music" checked> Music</label>
-    <label class="inline"><input type="checkbox" id="captions" checked> Captions</label>
-    <label class="inline"><input type="checkbox" id="review"> Let me edit the script first</label>
-    <button class="primary" id="go" style="margin-left:auto">Make video</button>
+<div class="bar">
+  <button class="ham" id="ham" aria-label="Menu"><i></i><i></i><i></i></button>
+  <div class="brand"><span class="dot">▶</span>Video Studio</div>
+  <div class="right"><span class="pill" id="status">…</span></div>
+</div>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer">
+  <div class="head"><b>Your videos</b><button class="primary" style="margin-left:auto" id="newbtn">+ New</button></div>
+  <div class="list" id="jobs"><div class="empty">No videos yet.</div></div>
+  <div class="foot">
+    <button id="agentsbtn">🤖 Use from Claude / agents</button>
+    <a class="btn" href="/logout">↩ Sign out</a>
+    <div class="small muted" id="models"></div>
   </div>
-</div>
-<div class="layout">
-  <div class="card"><h2>Videos</h2><div class="jobs" id="jobs"><div class="empty">Nothing yet.</div></div></div>
-  <div class="card" id="detail"><div class="empty">Paste a link above and press <b>Make video</b>.</div></div>
-</div>
-<div class="card"><h2>For agents</h2><p class="small muted">MCP tools: make_video, get_job, get_storyboard, update_storyboard, render, list_jobs, delete_job, list_options.</p><pre class="log" id="mcp"></pre></div>
+</aside>
+<main>
+  <section id="create" class="hero">
+    <textarea id="source" rows="2" placeholder="Paste a link: a news article (नेपाली or English), GitHub repo, YouTube video or PDF. Or describe your video."></textarea>
+    <div class="examples small muted" id="hint">Tip: add instructions after the link, e.g. “… focus on the rescue”.</div>
+    <div class="row2">
+      <div class="seg" id="len"><button data-v="15">15s</button><button data-v="30">30s</button><button data-v="60" class="on">60s</button><button data-v="90">90s</button></div>
+      <div class="fmt"><button id="fl" class="on"><span class="ic" style="width:18px;height:11px"></span>16:9</button><button id="fr" class="on"><span class="ic" style="width:10px;height:16px"></span>Reel 9:16</button></div>
+      <button class="primary go" id="go">Make video</button>
+    </div>
+    <details class="more"><summary>More options</summary>
+      <div class="styles" id="styles"></div>
+      <div class="opts">
+        <label>Language<select id="language"></select></label>
+        <label>Voice<select id="voice"></select></label>
+        <label>Quality<select id="quality"><option>1080p</option><option>720p</option></select></label>
+        <label class="inline"><input type="checkbox" id="music" checked> Background music</label>
+        <label class="inline"><input type="checkbox" id="captions" checked> Captions</label>
+        <label class="inline"><input type="checkbox" id="review"> Let me edit the script first</label>
+      </div>
+    </details>
+  </section>
+  <section id="detail" style="margin-top:16px"></section>
+  <section id="agents" class="card" style="margin-top:16px" hidden>
+    <h2>Use from Claude Code or other agents</h2>
+    <pre class="log" id="mcp"></pre>
+    <p class="small muted">Tools: make_video, get_job, get_storyboard, update_storyboard, render, list_jobs, delete_job, list_options.</p>
+  </section>
 </main>
 <script src="/static/kit.js"></script>
 <script>
-let cur = null, curState = null, INFO = null, editing = false;
+const SW = {auto: "linear-gradient(135deg,#7c9cff,#e1261c,#e9b872)", broadcast: "#e1261c", documentary: "#e9b872", midnight: "#7c9cff", paper: "#d2552d", neon: "#00f0ff", swiss: "#111"};
+const STEPS = [["link", /reading|collecting/], ["photos", /photos|looking/], ["script", /script|review/], ["visuals", /drawing/], ["voice", /narration/], ["music", /music|mixing/], ["render", /render/]];
+let cur = null, curState = null, INFO = null, editing = false, style = "auto", length = 60;
 $("#mcp").textContent = mcpHelp("video-studio");
 
+const open = v => document.body.classList.toggle("open", v);
+$("#ham").onclick = () => open(!document.body.classList.contains("open"));
+$("#scrim").onclick = () => open(false);
+$("#newbtn").onclick = () => { cur = null; open(false); $("#detail").replaceChildren(); $("#source").focus(); window.scrollTo({top: 0, behavior: "smooth"}); };
+$("#agentsbtn").onclick = () => { $("#agents").hidden = false; open(false); $("#agents").scrollIntoView({behavior: "smooth"}); };
+$$("#len button").forEach(b => b.onclick = () => { length = +b.dataset.v; $$("#len button").forEach(x => x.classList.toggle("on", x === b)); });
+["fl", "fr"].forEach(id => $("#" + id).onclick = e => e.currentTarget.classList.toggle("on"));
+$("#source").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#go").click(); });
+
 function opts() {
-  return {style: $("#style").value, length: +$("#length").value, voice: $("#voice").value, quality: $("#quality").value,
+  return {style, length, language: $("#language").value, voice: $("#voice").value, quality: $("#quality").value,
           music: $("#music").checked, captions: $("#captions").checked, review: $("#review").checked,
-          formats: [$("#fl").checked && "landscape", $("#fr").checked && "reel"].filter(Boolean)};
+          formats: [$("#fl").classList.contains("on") && "landscape", $("#fr").classList.contains("on") && "reel"].filter(Boolean)};
 }
 $("#go").onclick = async () => {
-  const o = opts(); if (!o.formats.length) return toast("Pick landscape, reel or both", "bad");
-  const j = await guard(() => api("/api/jobs", {json: {source: $("#source").value, ...o}}), "Queued");
-  cur = j.id; editing = false; loadJobs(); show();
+  const o = opts(); if (!o.formats.length) return toast("Pick 16:9, reel or both", "bad");
+  if (!$("#source").value.trim()) return toast("Paste a link or describe the video", "bad");
+  $("#go").disabled = true;
+  try { const j = await guard(() => api("/api/jobs", {json: {source: $("#source").value, ...o}}), "Started"); cur = j.id; editing = false; $("#source").value = ""; loadJobs(); show(); }
+  finally { $("#go").disabled = false; }
 };
 
 async function loadInfo() {
   INFO = await api("/api/info");
   $("#models").textContent = [INFO.llm, INFO.image_model && INFO.image_model.split("/").pop(), INFO.music_model && INFO.music_model.split("/").pop()].filter(Boolean).join(" · ");
-  $("#status").textContent = INFO.queue.running + " rendering · " + INFO.queue.queued + " waiting";
-  if (!$("#style").options.length) {
-    INFO.styles.forEach(s => $("#style").append(el("option", {value: s}, s)));
+  $("#status").textContent = INFO.queue.running ? "⏳ " + INFO.queue.running + " rendering" + (INFO.queue.queued ? " · " + INFO.queue.queued + " waiting" : "") : "Ready";
+  if (!$("#styles").children.length) {
+    INFO.styles.forEach(s => $("#styles").append(el("div", {class: "sty" + (s === style ? " on" : ""), "data-s": s, onclick: e => {
+      style = s; $$(".sty").forEach(x => x.classList.toggle("on", x.dataset.s === s)); }}, el("i", {style: {background: SW[s] || "#888"}}), s === "auto" ? "Auto" : s)));
+    Object.entries(INFO.languages).forEach(([k, v]) => $("#language").append(el("option", {value: k}, v)));
     Object.entries(INFO.voices).forEach(([k, v]) => $("#voice").append(el("option", {value: k}, v)));
-    $("#voice").append(el("option", {value: "none"}, "No narration"));
+    $("#voice").append(el("option", {value: "none"}, "No narration (captions only)"));
     if (!INFO.music_model) { $("#music").checked = false; $("#music").disabled = true; }
   }
 }
 
 async function loadJobs() {
   const {jobs} = await api("/api/jobs");
-  $("#jobs").replaceChildren(...jobs.map(j => el("div", {class: "job" + (j.id === cur ? " on" : ""), onclick: () => { cur = j.id; editing = false; loadJobs(); show(); }},
-    j.files["landscape.jpg"] || j.files["reel.jpg"] ? el("img", {src: j.files["landscape.jpg"] || j.files["reel.jpg"]}) : el("img", {alt: ""}),
-    el("div", {style: {minWidth: 0, flex: 1}}, el("div", {class: "t"}, j.title), el("div", {class: "row small muted"}, badge(j.state), fmtAgo(j.created)),
+  $("#jobs").replaceChildren(...jobs.map(j => el("div", {class: "item" + (j.id === cur ? " on" : ""), onclick: () => { cur = j.id; editing = false; open(false); loadJobs(); show(); }},
+    j.files["landscape.jpg"] || j.files["reel.jpg"] ? el("img", {src: j.files["landscape.jpg"] || j.files["reel.jpg"], alt: ""}) : el("div", {class: "ph"}),
+    el("div", {style: {minWidth: 0, flex: 1}}, el("div", {class: "t"}, j.title), el("div", {class: "m"}, badge(j.state), fmtAgo(j.created)),
       j.state === "running" ? progressBar(j.progress) : null))));
-  if (!jobs.length) $("#jobs").append(el("div", {class: "empty"}, "Nothing yet."));
-  if (!cur && jobs.length) { cur = jobs[0].id; show(); }
+  if (!jobs.length) $("#jobs").append(el("div", {class: "empty"}, "No videos yet."));
   const j = jobs.find(x => x.id === cur);
-  if (j && !editing && (j.state !== curState || j.state === "running" || j.state === "queued")) show();
+  if (j && !editing && (j.state !== curState || ["running", "queued"].includes(j.state))) show();
+}
+
+function stepper(j) {
+  const idx = j.state === "done" ? STEPS.length : Math.max(0, STEPS.findIndex(([, re]) => re.test(j.step || "")));
+  return el("div", {class: "steps"}, ...STEPS.map(([name], i) => el("span", {class: i < idx ? "done" : i === idx && j.state !== "done" ? "now" : ""}, (i < idx ? "✓ " : "") + name)));
 }
 
 function sceneEditor(sb, images) {
   return sb.scenes.map((s, i) => {
     const img = images[String(i)];
     const f = (k, v, ph, big) => el(big ? "textarea" : "input", {"data-i": i, "data-k": k, value: v || "", placeholder: ph, style: {width: "100%"}}, big ? v || "" : null);
-    return el("div", {class: "scene"}, img ? el("img", {src: img}) : el("div", {class: "noimg"}, s.layout),
-      el("div", {class: "col"}, el("div", {class: "row small muted"}, "Scene " + (i + 1) + " · " + s.layout),
-        f("heading", s.heading, "On-screen heading"),
-        s.layout === "bullets" ? f("bullets", (s.bullets || []).join("\n"), "One point per line", true) : null,
+    return el("div", {class: "scene"}, img ? el("img", {src: img, alt: ""}) : el("div", {class: "noimg"}, s.layout),
+      el("div", {class: "col"}, el("div", {class: "row small muted"}, "Scene " + (i + 1) + " · " + s.layout + (s.photo >= 0 ? " · photo " + s.photo : "")),
+        f("heading", s.heading, "On-screen headline"), f("kicker", s.kicker, "Small label (place • date)"),
+        ["bullets", "photo"].includes(s.layout) ? f("bullets", (s.bullets || []).join("\n"), "Points, one per line", true) : null,
         s.layout === "code" ? f("code", s.code, "Code", true) : null,
         s.layout === "quote" ? f("quote", s.quote, "Quote", true) : null,
-        f("narration", s.narration, "What the voice says", true),
-        ["title", "bullets", "image", "outro"].includes(s.layout) ? f("image_prompt", s.image_prompt, "Image prompt") : null));
+        f("narration", s.narration, "What the voice says", true)));
   });
 }
 
@@ -113,32 +193,38 @@ async function show() {
   if (!cur) return;
   const j = await api("/api/jobs/" + cur);
   curState = j.state;
-  const d = $("#detail"), parts = [];
-  parts.push(el("div", {class: "row", style: {marginBottom: "10px"}}, el("h2", {style: {margin: 0}}, j.title), badge(j.state),
-    j.duration ? el("span", {class: "small muted"}, fmtDur(j.duration) + " · " + j.options.style + " · " + j.options.quality) : null,
+  const parts = [];
+  parts.push(el("div", {class: "row", style: {marginBottom: "6px"}}, el("h2", {style: {margin: 0, fontSize: "18px"}}, j.title), badge(j.state),
+    j.duration ? el("span", {class: "small muted"}, [fmtDur(j.duration), j.language, j.style, j.voice, j.options.quality].filter(Boolean).join(" · ")) : null,
     el("span", {style: {marginLeft: "auto"}, class: "row"},
-      ["done", "error", "review"].includes(j.state) ? el("button", {onclick: async () => { await guard(() => api("/api/jobs/" + j.id + "/render", {json: {rewrite: true, review: true}}), "Writing a new script…"); show(); }}, "New script") : null,
-      el("button", {class: "danger", onclick: async () => { if (!confirm("Delete this video?")) return; await guard(() => api("/api/jobs/" + j.id + "/delete", {json: {}})); cur = null; d.replaceChildren(); loadJobs(); }}, "Delete"))));
-  if (j.state === "queued" || j.state === "running") parts.push(el("div", {class: "col"}, el("div", {}, j.step), progressBar(j.progress)));
+      ["done", "error", "review"].includes(j.state) ? el("button", {onclick: async () => { await guard(() => api("/api/jobs/" + j.id + "/render", {json: {rewrite: true, review: true}}), "Writing a new script…"); show(); }}, "↻ New script") : null,
+      el("button", {class: "danger", onclick: async () => { if (!confirm("Delete this video?")) return; await guard(() => api("/api/jobs/" + j.id + "/delete", {json: {}})); cur = null; $("#detail").replaceChildren(); loadJobs(); }}, "Delete"))));
+  if (j.state !== "error") parts.push(stepper(j));
+  if (j.state === "queued" || j.state === "running") parts.push(el("div", {class: "col"}, el("div", {class: "small"}, j.step), progressBar(j.progress)));
   if (j.error) parts.push(el("pre", {class: "log"}, j.error));
   (j.warnings || []).forEach(w => parts.push(el("div", {class: "small muted"}, "Note: " + w)));
   if (j.files["landscape.mp4"] || j.files["reel.mp4"]) {
-    parts.push(el("div", {class: "videos", style: {margin: "10px 0"}}, ...["landscape", "reel"].filter(f => j.files[f + ".mp4"]).map(f =>
-      el("div", {class: "v " + f}, el("video", {src: j.files[f + ".mp4"], controls: true, preload: "metadata", poster: j.files[f + ".jpg"] || null}),
-        el("a", {class: "btn", href: j.files[f + ".mp4"] + "?download=1"}, "Download " + (f === "reel" ? "reel 9:16" : "landscape 16:9"))))));
+    parts.push(el("div", {class: "players"},
+      j.files["reel.mp4"] ? el("div", {class: "player"}, el("div", {class: "phone"}, el("video", {src: j.files["reel.mp4"], controls: true, preload: "metadata", poster: j.files["reel.jpg"] || null, playsinline: true})),
+        el("a", {class: "btn primary", href: j.files["reel.mp4"] + "?download=1"}, "⬇ Reel 9:16")) : null,
+      j.files["landscape.mp4"] ? el("div", {class: "player land"}, el("video", {src: j.files["landscape.mp4"], controls: true, preload: "metadata", poster: j.files["landscape.jpg"] || null}),
+        el("a", {class: "btn primary", href: j.files["landscape.mp4"] + "?download=1"}, "⬇ Landscape 16:9")) : null));
   }
+  if ((j.photos || []).length) parts.push(el("h3", {}, "Photos from the link"), el("div", {class: "strip"}, ...j.photos.map(p => el("img", {src: p.url, title: p.description || p.caption || "", alt: ""}))));
   if (j.storyboard) {
     const sb = j.storyboard;
-    parts.push(el("h3", {}, j.state === "review" ? "Check the script, then render" : "Script"),
+    parts.push(el("details", {open: j.state === "review" ? true : null}, el("summary", {style: {cursor: "pointer", fontWeight: 600, margin: "12px 0"}}, j.state === "review" ? "Check the script, then render" : "Edit the script"),
       el("div", {class: "row"}, el("label", {style: {flex: 1}}, "Title", el("input", {id: "sbtitle", value: sb.title})),
         el("label", {style: {flex: 2}}, "Tagline", el("input", {id: "sbtag", value: sb.tagline || ""}))),
       el("div", {style: {marginTop: "10px"}}, ...sceneEditor(sb, j.images || {})),
       el("div", {class: "row"},
         el("button", {class: "primary", disabled: ["queued", "running"].includes(j.state), onclick: async () => {
           editing = false; await guard(() => api("/api/jobs/" + j.id + "/storyboard", {json: {storyboard: collect(sb), render: true}}), "Rendering…"); show(); }},
-          j.state === "review" ? "Render video" : "Save changes & re-render"),
-        el("span", {class: "small muted"}, "Unchanged scenes keep their images and narration.")));
+          j.state === "review" ? "Render video" : "Save & re-render"),
+        el("span", {class: "small muted"}, "Unchanged scenes keep their photos and narration."))));
   }
+  const d = $("#detail");
+  d.className = "card";
   d.replaceChildren(...parts);
   $$("input,textarea", d).forEach(e => e.addEventListener("input", () => { editing = true; }));
 }
