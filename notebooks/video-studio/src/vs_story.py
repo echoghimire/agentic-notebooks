@@ -23,6 +23,7 @@ LANGS = {"en": ("English", "English", ""), "ne": ("Nepali", "नेपाली"
          "fr": ("French", "français", ""), "it": ("Italian", "italiano", ""), "pt": ("Portuguese", "português", ""),
          "bn": ("Bengali", "বাংলা", ", in Bengali script"), "ur": ("Urdu", "اردو", ", in Urdu script")}
 DEVANAGARI = {"ne", "hi", "mr", "sa", "mai"}
+NO_PHOTO = -2                                      # the user chose "no picture" for a scene (-1 = pick one for me)
 CATEGORIES = ("news", "tech", "education", "story", "promo", "other")
 TONES = ("tragic", "serious", "neutral", "upbeat", "inspiring")
 
@@ -40,6 +41,8 @@ Return ONLY a JSON object:
   "category": one of "news", "tech", "education", "story", "promo", "other",
   "tone": one of "tragic", "serious", "neutral", "upbeat", "inspiring",
   "music_prompt": "background music in English: genre, mood, tempo, instruments, no vocals",
+  "place": "the main real place where the story happens, in English with district and country (e.g. 'Bardaghat, Nawalparasi, Nepal'), or empty if there is none",
+  "place_local": "the same place name in {lang_name}, short (e.g. a town and district), or empty",
   "scenes": [
     {{
       "layout": one of "headline", "photo", "bullets", "stats", "quote", "code", "outro",
@@ -175,7 +178,7 @@ def _scene(sc, n_photos):
         photo = -1
     out = {"layout": layout, "heading": _s(sc.get("heading"), 80), "kicker": _s(sc.get("kicker"), 40), "bullets": bullets,
            "narration": _words(sc.get("narration"), 60), "image_prompt": _s(sc.get("image_prompt"), 300),
-           "photo": photo if 0 <= photo < n_photos else -1,
+           "photo": photo if 0 <= photo < n_photos or photo == NO_PHOTO else -1,
            "code": "\n".join(str(sc.get("code") or "").splitlines()[:10])[:600], "quote": _s(sc.get("quote"), 220), "stats": []}
     if layout == "stats":
         out["stats"] = [{"value": _s(x.get("value"), 20), "label": _s(x.get("label"), 30)} for x in (sc.get("stats") or [])
@@ -227,7 +230,8 @@ def clean(sb, src, length, lang, n_photos=0, keep_stats=False, fit=True):
            "category": cat if cat in CATEGORIES else ("news" if src["kind"] == "article" else "other"),
            "tone": tone if tone in TONES else "neutral",
            "music_prompt": _s(sb.get("music_prompt") or "light background music, no vocals", 200),
-           "scenes": scenes, "source": {k: src.get(k) for k in ("kind", "url", "title", "facts")}}
+           "scenes": scenes, "source": {k: src.get(k) for k in ("kind", "url", "title", "facts")},
+           "place": _s(sb.get("place"), 120), "place_local": _s(sb.get("place_local"), 60)}
     if out["category"] == "news" or out["tone"] in ("tragic", "serious"):
         for sc in scenes:
             sc["image_prompt"] = ""                    # never invent pictures of real events

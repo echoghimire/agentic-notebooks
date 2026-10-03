@@ -14,6 +14,10 @@ import time
 
 import vs_scenes as V
 
+# Software WebGL (SwiftShader) for the depth-parallax layer, and file:// images readable by WebGL
+CHROME_ARGS = ["--no-sandbox", "--disable-dev-shm-usage", "--font-render-hinting=none", "--allow-file-access-from-files",
+               "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
+
 
 def progress(out_dir, **kw):
     tmp = os.path.join(out_dir, "progress.json.tmp")
@@ -58,7 +62,7 @@ def main(job_dir, fmt):
     t0 = time.time()
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH") or None,
-                                     args=["--no-sandbox", "--disable-dev-shm-usage", "--font-render-hinting=none"])
+                                     args=CHROME_ARGS)
         page = browser.new_page(viewport={"width": w, "height": h}, device_scale_factor=1)
         parts = []
         for i, sc in enumerate(scenes):
