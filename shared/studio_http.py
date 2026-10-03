@@ -5,8 +5,9 @@ self-contained: nothing is imported from GitHub at run time. Standard library on
 
 An app built on it gets:
 - routes with regex paths, JSON in and out, file (with byte ranges), zip and chunked responses;
-- one password for everything: browsers use HTTP Basic (any username), agents send
-  ``Authorization: Bearer <password>`` or ``X-Access-Token: <password>``. ``GET /health`` stays open;
+- one password for everything: browsers get a login page and a signed session cookie (no browser pop-up);
+  agents send ``Authorization: Bearer <password>``, ``X-Access-Token: <password>`` or HTTP Basic.
+  ``GET /health`` stays open;
 - an MCP server at ``POST /mcp`` (Streamable HTTP transport, plain JSON responses, no sessions),
   and the same tools as REST: ``GET /mcp/tools`` and ``POST /mcp/tools/<name>`` with the arguments as JSON;
 - an optional reverse proxy (HTTP and WebSocket) for every path no route matches;
@@ -17,7 +18,9 @@ files (so re-running a cell, or the whole notebook after a kernel restart, never
 running), wait_http(), tail(), start_tunnel() and keep_alive(). Logs go to files, never to the notebook.
 """
 import base64
+import hashlib
 import hmac
+import html as _html
 import http.client
 import json
 import logging
@@ -42,6 +45,8 @@ MCP_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "trailers",
        "transfer-encoding", "upgrade"}
 SECRET_HEADERS = {"authorization", "x-access-token"}
+SESSION_COOKIE = "studio_session"
+SESSION_DAYS = 30
 PID_DIR = "/kaggle/working/.pids" if os.path.isdir("/kaggle/working") else "/tmp/agentic-notebooks-pids"
 
 
@@ -230,6 +235,52 @@ class Request:
 
 
 # ====================================================================== app
+def _strip_session(cookie):
+    """Never forward our session cookie to a proxied backend."""
+    return "; ".join(p.strip() for p in (cookie or "").split(";")
+                     if p.strip() and p.strip().partition("=")[0] != SESSION_COOKIE)
+
+
+LOGIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · {{NAME}}</title>
+<style>
+:root{--bg:#f4f5f8;--card:#fff;--text:#14171c;--muted:#636b77;--line:#dfe2e8;--accent:#2f6fec;--bad:#c4372f}
+@media (prefers-color-scheme:dark){:root{--bg:#0d0f13;--card:#161a20;--text:#e8eaee;--muted:#98a0ab;--line:#2a2f37;--accent:#5b8ff5;--bad:#ef6a60}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:radial-gradient(1200px 600px at 10% -10%,color-mix(in srgb,var(--accent) 18%,transparent),transparent),var(--bg);
+color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Noto Sans Devanagari",sans-serif;
+display:flex;align-items:center;justify-content:center;padding:16px}
+.card{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:30px 28px;
+box-shadow:0 20px 60px rgba(0,0,0,.12)}
+.logo{width:44px;height:44px;border-radius:12px;background:var(--accent);display:flex;align-items:center;justify-content:center;
+color:#fff;font-weight:800;font-size:20px;margin-bottom:18px}
+h1{font-size:20px;margin:0 0 4px}p{color:var(--muted);margin:0 0 22px;font-size:14px}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+.field{position:relative}
+input{width:100%;font:inherit;color:var(--text);background:transparent;border:1px solid var(--line);border-radius:10px;padding:11px 44px 11px 12px}
+input:focus{outline:2px solid color-mix(in srgb,var(--accent) 45%,transparent);border-color:var(--accent)}
+.eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:none;color:var(--muted);cursor:pointer;padding:6px;font-size:13px}
+button.go{width:100%;margin-top:16px;border:0;border-radius:10px;padding:12px;background:var(--accent);color:#fff;font:600 15px system-ui;cursor:pointer}
+button.go:disabled{opacity:.6}.err{color:var(--bad);font-size:13px;min-height:20px;margin-top:10px}
+.hint{font-size:12px;color:var(--muted);margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
+</style></head><body>
+<form class="card" id="f" method="post" action="/login">
+<div class="logo">&#9656;</div><h1>{{NAME}}</h1><p>Sign in with the password from your notebook.</p>
+<label for="pw">Password</label><div class="field"><input id="pw" name="password" type="password" autocomplete="current-password" autofocus required>
+<button class="eye" type="button" id="eye">Show</button></div>
+<button class="go" id="go">Sign in</button><div class="err" id="err"></div>
+<div class="hint">It is the <b>*_UI_PASSWORD</b> Kaggle secret, or the password the notebook printed.</div>
+</form>
+<script>
+const f=document.getElementById('f'),pw=document.getElementById('pw'),err=document.getElementById('err'),go=document.getElementById('go');
+document.getElementById('eye').onclick=e=>{pw.type=pw.type==='password'?'text':'password';e.target.textContent=pw.type==='password'?'Show':'Hide';};
+f.onsubmit=async e=>{e.preventDefault();go.disabled=true;err.textContent='';
+ try{const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw.value})});
+  if(r.ok){location.reload();return;} const d=await r.json().catch(()=>({}));err.textContent=d.error||('Sign-in failed ('+r.status+')');}
+ catch(x){err.textContent='Network error: '+x;} go.disabled=false;pw.select();};
+</script></body></html>"""
+
+
 def _rpc_error(mid, code, message):
     return {"jsonrpc": "2.0", "id": mid, "error": {"code": code, "message": message}}
 
@@ -243,8 +294,12 @@ class App:
         self.log = log or logging.getLogger(name)
         self.max_body = max_body
         self.routes, self.tools, self.servers = [], {}, []
+        self._fails = {}
 
         self.route("GET", "/health", auth=False)(lambda req: {"ok": True})
+        self.route("POST", "/login", auth=False)(self._login)
+        self.route("GET", "/logout", auth=False)(self._logout)
+        self.route("POST", "/logout", auth=False)(self._logout)
         self.route("POST", "/mcp")(self._mcp_http)
         self.route("GET", "/mcp")(lambda req: Response(
             "This MCP server answers POST requests (Streamable HTTP transport, JSON responses).", 405,
@@ -378,9 +433,58 @@ class App:
                         "application/json; charset=utf-8")
 
     # ------------------------------------------------------------------ auth
+    def _key(self):
+        return hashlib.sha256(("studio-session:" + self.password).encode("utf-8")).digest()
+
+    def make_session(self, days=SESSION_DAYS):
+        exp = str(int(time.time() + days * 86400))
+        return "%s.%s" % (exp, hmac.new(self._key(), exp.encode(), hashlib.sha256).hexdigest()[:40])
+
+    def _session_ok(self, headers):
+        for part in (headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == SESSION_COOKIE:
+                exp, _, sig = v.partition(".")
+                if exp.isdigit() and int(exp) > time.time():
+                    want = hmac.new(self._key(), exp.encode(), hashlib.sha256).hexdigest()[:40]
+                    if hmac.compare_digest(sig.encode(), want.encode()):
+                        return True
+        return False
+
+    def _cookie(self, headers, value, max_age):
+        secure = (headers.get("X-Forwarded-Proto") or "").lower() == "https" or '"https"' in (headers.get("Cf-Visitor") or "")
+        return "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s" % (
+            SESSION_COOKIE, value, max_age, "; Secure" if secure else "")
+
+    def _login(self, req):
+        if not self.password:
+            return {"ok": True}
+        ip = req.headers.get("Cf-Connecting-Ip") or req.handler.client_address[0]
+        now = time.time()
+        fails = [t for t in self._fails.get(ip, []) if now - t < 300]
+        if len(fails) >= 8:
+            raise HTTPError(429, "too many attempts; wait a few minutes")
+        if "json" in (req.headers.get("Content-Type") or ""):
+            given = str(req.json().get("password") or "")
+        else:
+            given = parse_qs(req.body().decode("utf-8", "replace")).get("password", [""])[0]
+        if not hmac.compare_digest(given.encode("utf-8"), self.password.encode("utf-8")):
+            fails.append(now)
+            self._fails[ip] = fails
+            time.sleep(0.5)
+            raise HTTPError(401, "wrong password")
+        self._fails.pop(ip, None)
+        return Response(json.dumps({"ok": True}), 200, "application/json; charset=utf-8",
+                        {"Set-Cookie": self._cookie(req.headers, self.make_session(), SESSION_DAYS * 86400)})
+
+    def _logout(self, req):
+        return Response(b"", 303, "text/plain", {"Location": "/", "Set-Cookie": self._cookie(req.headers, "", 0)})
+
     def authorized(self, headers):
         pw = self.password
         if not pw:
+            return True
+        if self._session_ok(headers):
             return True
 
         def ok(given):
@@ -399,10 +503,13 @@ class App:
         return False
 
     def _deny(self, h):
-        self._respond(h, Response(json.dumps({"error": "login required: HTTP Basic (any username) or "
+        """Pages get the login form; everything else a JSON 401 (no browser pop-up)."""
+        if h.command in ("GET", "HEAD") and "text/html" in (h.headers.get("Accept") or ""):
+            return self._respond(h, Response(LOGIN_PAGE.replace("{{NAME}}", _html.escape(self.name)), 401,
+                                             "text/html; charset=utf-8"))
+        self._respond(h, Response(json.dumps({"error": "login required: sign in on the page, or send "
                                               "'Authorization: Bearer <password>'"}), 401,
-                                  "application/json; charset=utf-8",
-                                  {"WWW-Authenticate": 'Basic realm="%s", charset="UTF-8"' % self.name}))
+                                  "application/json; charset=utf-8"))
 
     # ------------------------------------------------------------------ dispatch
     def dispatch(self, h):
@@ -571,8 +678,9 @@ class App:
                 and (h.headers.get("Upgrade") or "").lower() == "websocket"):
             return self._proxy_ws(h, host, port)
         req = Request(h, {}, self.max_body)
-        headers = [(k, v) for k, v in h.headers.items()
+        headers = [(k, _strip_session(v) if k.lower() == "cookie" else v) for k, v in h.headers.items()
                    if k.lower() not in HOP and k.lower() not in SECRET_HEADERS and k.lower() != "content-length"]
+        headers = [(k, v) for k, v in headers if v]
         headers.append(("X-Forwarded-For", h.client_address[0]))
         body = req.body() if req.has_body() else None
         if body is not None:
@@ -620,7 +728,8 @@ class App:
         except OSError as e:
             raise HTTPError(502, "backend not reachable (%s)" % type(e).__name__)
         lines = ["%s %s HTTP/1.1" % (h.command, h.path)]
-        lines += ["%s: %s" % (k, v) for k, v in h.headers.items() if k.lower() not in SECRET_HEADERS]
+        lines += ["%s: %s" % (k, _strip_session(v) if k.lower() == "cookie" else v) for k, v in h.headers.items()
+                  if k.lower() not in SECRET_HEADERS and (k.lower() != "cookie" or _strip_session(v))]
         h._sent = True
         h.close_connection = True
         client = h.connection

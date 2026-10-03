@@ -29,6 +29,17 @@ def ffmpeg(*args):
         raise RuntimeError("ffmpeg failed: " + p.stderr[-1500:])
 
 
+def photo_for(sc, w, h):
+    """Crop the photo when its shape is close to the frame's; otherwise letterbox it over a blurred fill."""
+    ph = sc.get("photo")
+    if not ph or not ph.get("path"):
+        return None
+    pa = ph.get("w", 1) / float(ph.get("h", 1) or 1)
+    fa = w / float(h)
+    fit = "cover" if 0.72 <= pa / fa <= 1.38 else "contain"
+    return dict(ph, fit=fit)
+
+
 def main(job_dir, fmt):
     plan = json.load(open(os.path.join(job_dir, "plan.json"), encoding="utf-8"))
     out_dir = os.path.join(job_dir, fmt)
@@ -53,7 +64,7 @@ def main(job_dir, fmt):
         for i, sc in enumerate(scenes):
             caps = V.caption_chunks(sc["narration"], sc["narr_start"], sc["narr_dur"],
                                     5 if fmt == "reel" else 9) if plan.get("captions") else None
-            doc = V.scene_html(sc, i, len(scenes), plan["story"], plan["style"], fmt, sc["dur"], sc.get("image"),
+            doc = V.scene_html(sc, i, len(scenes), plan["story"], plan["style"], fmt, sc["dur"], photo_for(sc, w, h),
                                caps, 100 * t_acc / total_dur, 100 * (t_acc + sc["dur"]) / total_dur)
             t_acc += sc["dur"]
             path = os.path.join(out_dir, "scene_%02d.html" % i)

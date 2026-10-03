@@ -1,7 +1,9 @@
-"""Images, narration and music for Video Studio, plus the audio mix. Heavy libraries load on first use.
+"""Photos, images, narration and music for Video Studio, plus the audio mix. Heavy libraries load on first use.
 
-- Images: Stable Diffusion XL (diffusers), one square image per scene, cropped by the templates for 16:9 and 9:16.
-- Narration: Kokoro-82M (Apache 2.0), 24 kHz.
+- Photos: downloaded from the source page, checked, de-duplicated and lightly edited (auto-contrast, sharpen);
+  optionally described by a vision LLM (Gemma 3 via Ollama) so the script can match photos to scenes.
+- Images: Stable Diffusion XL (diffusers), only for non-news topics without usable photos.
+- Narration: Kokoro-82M here; Nepali / Hindi voices live in vs_tts.py.
 - Music: MusicGen (transformers), ~30 s generated once, looped under the whole video.
 - mix(): narration track + music ducked under the voice -> one 44.1 kHz WAV for both formats.
 """
@@ -18,14 +20,8 @@ STYLE_SUFFIX = {
     "swiss": "minimal flat geometric illustration, bold red black and white, clean shapes, bauhaus poster",
 }
 NEGATIVE = "text, letters, words, watermark, logo, signature, caption, ui, blurry, lowres, deformed, extra fingers"
-VOICES = {
-    "af_heart": "US English, female (warm)", "af_bella": "US English, female (bright)",
-    "am_michael": "US English, male", "am_fenrir": "US English, male (deep)",
-    "bf_emma": "UK English, female", "bm_george": "UK English, male",
-    "ef_dora": "Spanish, female", "ff_siwis": "French, female", "hf_alpha": "Hindi, female",
-    "if_sara": "Italian, female", "pf_dora": "Portuguese (BR), female",
-}
 OUT_RATE = 44100
+MUSIC_LEVELS = {"tragic": (0.10, 0.035), "serious": (0.14, 0.05)}     # (music level, level under the voice)
 
 
 def read_wav(path):
@@ -154,7 +150,7 @@ class Media:
             pass
 
 
-def mix(total, narrations, music_path, out_path, music_gain=0.22, duck_gain=0.07):
+def mix(total, narrations, music_path, out_path, tone="neutral"):
     """narrations: [(start_seconds, wav_path)]. Music loops with crossfades and dips under the voice."""
     n = int(total * OUT_RATE)
     voice = np.zeros(n, np.float32)
@@ -164,6 +160,7 @@ def mix(total, narrations, music_path, out_path, music_gain=0.22, duck_gain=0.07
         i = int(start * OUT_RATE)
         x = x[:max(0, n - i)]
         voice[i:i + len(x)] += x
+    music_gain, duck_gain = MUSIC_LEVELS.get(tone, (0.22, 0.07))
     out = voice.copy()
     if music_path and os.path.exists(music_path):
         m, r = read_wav(music_path)
@@ -192,3 +189,83 @@ def mix(total, narrations, music_path, out_path, music_gain=0.22, duck_gain=0.07
         out = out * (0.97 / peak)
     write_wav(out_path, out, OUT_RATE)
     return out_path
+
+
+# ====================================================================== photos from the source
+def _ahash(im):
+    g = im.convert("L").resize((9, 8))
+    px = list(g.getdata())
+    return sum(1 << i for i in range(64) if px[(i // 8) * 9 + i % 8] > px[(i // 8) * 9 + i % 8 + 1])
+
+
+def fetch_photos(images, out_dir, limit=8, referer=None, log=None):
+    """Downloads candidate photos, keeps real photos (>= 480 px, sane shape, not duplicates), edits them lightly.
+    Returns [{"path", "w", "h", "caption", "alt", "url"}] in the source's order of importance."""
+    import io
+    import urllib.request
+    from PIL import Image, ImageFilter, ImageOps
+    os.makedirs(out_dir, exist_ok=True)
+    kept, hashes = [], []
+    for c in images:
+        if len(kept) >= limit:
+            break
+        try:
+            if c.get("bytes"):
+                data = c["bytes"]
+            else:
+                req = urllib.request.Request(c["url"], headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/126 Safari/537.36",
+                                                                "Referer": referer or c["url"], "Accept": "image/*,*/*;q=0.5"})
+                with urllib.request.urlopen(req, timeout=25) as r:
+                    data = r.read(20 << 20)
+            im = Image.open(io.BytesIO(data))
+            im = ImageOps.exif_transpose(im).convert("RGB")
+        except Exception as e:
+            if log:
+                log.info("photo skipped (%s): %s", str(c.get("url"))[:120], e)
+            continue
+        w, h = im.size
+        if min(w, h) < 480 or max(w, h) / min(w, h) > 3.2:
+            continue
+        hsh = _ahash(im)
+        if any(bin(hsh ^ x).count("1") <= 6 for x in hashes):
+            if log:
+                log.info("duplicate photo skipped: %s", str(c.get("url"))[:120])
+            continue                                    # same picture at another size or crop
+        hashes.append(hsh)
+        if max(w, h) > 2400:
+            im.thumbnail((2400, 2400), Image.LANCZOS)
+        im = ImageOps.autocontrast(im, cutoff=0.5, preserve_tone=True) if "preserve_tone" in ImageOps.autocontrast.__code__.co_varnames \
+            else ImageOps.autocontrast(im, cutoff=0.5)
+        im = im.filter(ImageFilter.UnsharpMask(radius=1.2, percent=60, threshold=3))
+        path = os.path.join(out_dir, "photo_%02d.jpg" % len(kept))
+        im.save(path, "JPEG", quality=92)
+        kept.append({"path": path, "w": im.size[0], "h": im.size[1], "caption": c.get("caption") or "",
+                     "alt": c.get("alt") or "", "url": c.get("url")})
+    return kept
+
+
+def describe_photos(photos, ollama_url, model, keep_alive="10m", log=None):
+    """One short English description per photo from a vision model (Gemma 3, LLaVA...). Best effort."""
+    import base64
+    import io
+    import json as _json
+    import urllib.request
+    from PIL import Image
+    for p in photos:
+        try:
+            im = Image.open(p["path"])
+            im.thumbnail((640, 640))
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=85)
+            body = _json.dumps({"model": model, "stream": False, "keep_alive": keep_alive, "options": {"temperature": 0.2},
+                                "messages": [{"role": "user", "images": [base64.b64encode(buf.getvalue()).decode()],
+                                              "content": "Describe this photo in one short factual English sentence: who or "
+                                                         "what is shown and where. No guessing names."}]}).encode()
+            req = urllib.request.Request(ollama_url.rstrip("/") + "/api/chat", data=body, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=120) as r:
+                p["description"] = _json.loads(r.read())["message"]["content"].strip()[:240]
+        except Exception as e:
+            if log:
+                log.info("photo description skipped: %s", e)
+            return photos                              # the model cannot see images: stop trying
+    return photos

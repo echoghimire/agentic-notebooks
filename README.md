@@ -21,7 +21,7 @@ By Er. Gunjan Ghimire.
 | [`notebooks/whisper-diarization-studio`](notebooks/whisper-diarization-studio) | **Whisper Diarization Studio**: transcripts with who-spoke-when (faster-whisper + pyannote), meeting summaries and action items (Ollama), SRT/VTT; MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/whisper-diarization-studio/whisper-diarization-studio.ipynb) |
 | [`notebooks/unsloth-finetuning-lab`](notebooks/unsloth-finetuning-lab) | **Unsloth Fine-tuning Lab**: dataset → 4-bit LoRA fine-tune → chat → GGUF / merged export → Hugging Face; MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/unsloth-finetuning-lab/unsloth-finetuning-lab.ipynb) |
 | [`notebooks/rag-ingest-pipeline`](notebooks/rag-ingest-pipeline) | **RAG Ingest Pipeline**: PDFs, DOCX, web pages and whole datasets → chunks → bge-m3 embeddings → search with reranking → export for any vector DB; MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/rag-ingest-pipeline/rag-ingest-pipeline.ipynb) |
-| [`notebooks/video-studio`](notebooks/video-studio) | **Video Studio**: any link (GitHub, article, YouTube, PDF) or idea → narrated video with music as 16:9 and 9:16 reel (local LLM + SDXL + Kokoro TTS + MusicGen); MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/video-studio/video-studio.ipynb) |
+| [`notebooks/video-studio`](notebooks/video-studio) | **Video Studio**: any link (news in Nepali or English, GitHub, YouTube, PDF) → narrated video as 16:9 and 9:16 reel, using the link's own photos and language (Gemma 3, Indic Parler-TTS / Kokoro, MusicGen; broadcast-style news graphics); MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/video-studio/video-studio.ipynb) |
 
 ## Quick start
 
@@ -51,7 +51,7 @@ No tokens or domains are stored in the notebooks. Everything comes from Kaggle s
 
 - Kaggle sessions stop after about 12 hours, and GPU time is capped per week. These are for building, testing and demos, not always-on hosting.
 - `/kaggle/working` is wiped when a session ends. Download results or push them to Hugging Face.
-- Anything behind the tunnel is on the public internet. Put a password on it (every notebook here supports one) or add Cloudflare Access.
+- Anything behind the tunnel is on the public internet. Put a password on it (every notebook here supports one; the newer ones show a sign-in page) or add Cloudflare Access.
 
 ## For agents
 
@@ -67,4 +67,4 @@ See [`AGENTS.md`](AGENTS.md). It explains the layout, how to hand a notebook to 
 - faster-whisper: [SYSTRAN](https://github.com/SYSTRAN/faster-whisper), MIT. pyannote.audio: [pyannote](https://github.com/pyannote/pyannote-audio), MIT (models gated).
 - Unsloth: [unslothai/unsloth](https://github.com/unslothai/unsloth), Apache 2.0.
 - bge-m3 and bge-reranker-v2-m3: [BAAI](https://huggingface.co/BAAI), MIT / Apache 2.0.
-- Video Studio: inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) (Apache 2.0). Kokoro-82M: [hexgrad](https://huggingface.co/hexgrad/Kokoro-82M), Apache 2.0. MusicGen: [Meta](https://huggingface.co/facebook/musicgen-small), weights CC-BY-NC 4.0.
+- Video Studio: inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) and [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache 2.0). [trafilatura](https://github.com/adbar/trafilatura) (Apache 2.0). Gemma 3: Gemma Terms of Use. [Indic Parler-TTS](https://huggingface.co/ai4bharat/indic-parler-tts): AI4Bharat, Apache 2.0. [Piper](https://github.com/rhasspy/piper): MIT. Kokoro-82M: [hexgrad](https://huggingface.co/hexgrad/Kokoro-82M), Apache 2.0. MusicGen: [Meta](https://huggingface.co/facebook/musicgen-small), weights CC-BY-NC 4.0.
