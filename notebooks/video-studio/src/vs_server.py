@@ -12,6 +12,7 @@ Photos, images and narration are cached by content, so editing one scene and re-
 """
 import argparse
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -29,6 +30,7 @@ import uuid
 import studio_http as K
 import vs_media as M
 import vs_motion as MO
+import vs_postiz as PZ
 import vs_scenes as V
 import vs_source as SRC
 import vs_story as ST
@@ -111,7 +113,7 @@ def files_of(jid):
 
 def public(job, full=False):
     keys = ("id", "title", "state", "step", "progress", "created", "updated", "error", "warnings", "options",
-            "duration", "render", "seconds", "language", "style", "voice")
+            "duration", "render", "seconds", "language", "style", "voice", "posts")
     out = {k: job.get(k) for k in keys if k in job}
     out["files"] = files_of(job["id"])
     if full:
@@ -123,6 +125,7 @@ def public(job, full=False):
         out["photos"] = [{"index": i, "url": "/api/jobs/%s/files/photos/%s" % (job["id"], os.path.basename(p["path"])),
                           "caption": p.get("caption"), "description": p.get("description"), "kind": p.get("kind") or "page",
                           "credit": p.get("credit") if "credit" in p else None, "source": p.get("url") or None,
+                          "needs_credit": bool(p.get("needs_credit")),
                           "video": "/api/jobs/%s/files/photos/%s" % (job["id"], os.path.basename(p["clip"])) if p.get("clip") else None}
                          for i, p in enumerate(photos)]
         out["images"] = {str(i): "/api/jobs/%s/files/%s/%s" % (job["id"], os.path.basename(os.path.dirname(p)), os.path.basename(p))
@@ -133,7 +136,8 @@ def public(job, full=False):
 def parse_options(b, base=None):
     o = dict(base or {"style": "auto", "length": 60, "voice": "auto", "language": "auto", "music": bool(MUSIC_MODEL),
                       "captions": True, "formats": list(FORMATS), "quality": DEFAULT_QUALITY, "review": False,
-                      "motion": "auto", "map": True, "sfx": True})
+                      "motion": "auto", "map": True, "sfx": True, "brand": True, "post_to": [], "post_at": "",
+                      "post_privacy": "public"})
     if b.get("style") not in (None, ""):
         if b["style"] not in STYLE_CHOICES:
             raise ValueError("style must be one of " + ", ".join(STYLE_CHOICES))
@@ -155,7 +159,16 @@ def parse_options(b, base=None):
         if b["motion"] not in MOTION_CHOICES:
             raise ValueError("motion must be one of " + ", ".join(MOTION_CHOICES))
         o["motion"] = b["motion"]
-    for k in ("music", "captions", "review", "map", "sfx"):
+    if b.get("post_to") is not None and b.get("post_to") != "":
+        pt = b["post_to"] if isinstance(b["post_to"], list) else [x.strip() for x in str(b["post_to"]).split(",") if x.strip()]
+        o["post_to"] = [x if isinstance(x, dict) else {"id": str(x)} for x in pt][:20]
+    if b.get("post_at") is not None:
+        o["post_at"] = parse_when(b["post_at"])
+    if b.get("post_privacy"):
+        if b["post_privacy"] not in ("public", "unlisted", "private"):
+            raise ValueError("post_privacy must be public, unlisted or private")
+        o["post_privacy"] = b["post_privacy"]
+    for k in ("music", "captions", "review", "map", "sfx", "brand"):
         if b.get(k) is not None and b.get(k) != "":
             o[k] = b[k] if isinstance(b[k], bool) else str(b[k]).lower() in ("1", "true", "yes", "on")
     if b.get("formats") is not None and b.get("formats") != "":
@@ -429,8 +442,8 @@ def run_job(job):
         TTS.svara_unload()                              # free the GPU for music and rendering
         MEDIA.unload("-")
     spoken, room = sum(x[1] for x in narr.values()), 0.8 * o["length"]
-    if narr and spoken > room * 1.04:                   # too long for the chosen length: speak a little faster
-        f = min(1.25, spoken / room)
+    if narr and spoken > room * 1.04:                   # too long: a touch faster, never so fast it slurs
+        f = min(1.08, spoken / room)
         log.info("%s: narration %.1fs for %ss; speeding up %.2fx", job["id"], spoken, o["length"], f)
         try:
             for i, (path, _) in list(narr.items()):
@@ -476,7 +489,7 @@ def run_job(job):
     elif os.path.exists(audio):
         os.remove(audio)
     # 8. render
-    story = dict(sb, language=lang)
+    story = dict(sb, language=lang, brand=brand_for_render(o))
     K.write_json(os.path.join(d, "plan.json"), {"story": story, "style": style, "captions": o["captions"], "fps": FPS,
                                                 "quality": o["quality"], "scenes": plan_scenes})
     for f in FORMATS:
@@ -500,6 +513,14 @@ def run_job(job):
             errors.append("%s: %s" % (f, pr.get("error") or K.tail(os.path.join(d, "render_%s.log" % f), 5)))
     if errors:
         raise RuntimeError("rendering failed; " + " | ".join(errors))
+    if o.get("post_to"):                               # auto-post the finished video
+        step(job, "posting to %d channel(s)" % len(o["post_to"]), 0.99)
+        try:
+            post_job(job["id"], o["post_to"], None, o.get("post_at") or "", o.get("post_privacy", "public"))
+            job = load(job["id"])
+        except Exception as e:
+            log.error("auto-post failed\n%s", traceback.format_exc())
+            warnings.append("posting failed: %s" % str(e)[:200])
     save(job, state="done", step="done", progress=1.0, duration=total, warnings=warnings, seconds=round(time.time() - t0),
          scene_images={str(k): visuals[i]["path"] for k, i in enumerate(i for i, sc in enumerate(scenes) if not sc.get("inserted"))
                        if i in visuals},
@@ -536,8 +557,27 @@ def wait(jid, seconds):
 ASSET_LIMIT = 200 << 20
 
 
+# Storage and CDN hosts say nothing about who took a picture (a Google Photos "copy link" gives
+# lh3.googleusercontent.com): such links get no automatic credit, and the editor asks for one instead.
+CDN_HOSTS = re.compile(r"(^|\.)(googleusercontent\.com|ggpht\.com|gstatic\.com|googleapis\.com|photos\.app\.goo\.gl|"
+                       r"photos\.google\.com|drive\.google\.com|fbcdn\.net|cdninstagram\.com|twimg\.com|pinimg\.com|"
+                       r"imgur\.com|cloudfront\.net|amazonaws\.com|akamaized\.net|wp\.com|blogspot\.com|bp\.blogspot\.com|"
+                       r"dropboxusercontent\.com|dropbox\.com|1drv\.ms|sharepoint\.com|icloud\.com|cloudinary\.com|"
+                       r"imagekit\.io|githubusercontent\.com|discordapp\.(com|net)|wixstatic\.com|squarespace-cdn\.com|"
+                       r"shopify\.com|unsplash\.com)$", re.I)
+
+
 def _site_name(url):
-    return (urllib.parse.urlparse(url).hostname or "").lower().replace("www.", "")
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return "" if CDN_HOSTS.search(host) else host.replace("www.", "")
+
+
+def _full_size(url):
+    """Google Photos / Blogger links carry a size suffix (=w400-h300): ask for the original instead."""
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    if host.endswith(("googleusercontent.com", "ggpht.com")):
+        return re.sub(r"=[\w-]*$", "", url) + "=s0"
+    return url
 
 
 def _download(url, dest):
@@ -580,7 +620,7 @@ def fetch_link_asset(url, dest):
         who = meta.get("channel") or meta.get("uploader") or ""
         site = meta.get("extractor_key") or _site_name(url)
         return (" · ".join(x for x in (who, site) if x) or _site_name(url)), meta.get("webpage_url") or url
-    ctype, final = _download(url, dest)
+    ctype, final = _download(_full_size(url), dest)
     if "html" not in ctype.lower():
         return _site_name(final), final                 # a direct picture or video file
     raw = open(dest, "rb").read().decode("utf-8", "replace")
@@ -596,8 +636,11 @@ def fetch_link_asset(url, dest):
         media = imgs[0]["url"] if imgs else ""
     if not media:
         raise ValueError("that page has no picture or video to use")
-    _download(urllib.parse.urljoin(final, media), dest)
-    return pg.meta.get("og:site_name") or _site_name(final), final
+    _download(_full_size(urllib.parse.urljoin(final, media)), dest)
+    site = pg.meta.get("og:site_name") or ""
+    if not site or CDN_HOSTS.search((urllib.parse.urlparse(final).hostname or "").lower()):
+        site = _site_name(final)                        # a Google Photos album page names no photographer
+    return site, final
 
 
 def add_asset(jid, data_iter=None, url=None, name=""):
@@ -629,7 +672,7 @@ def add_asset(jid, data_iter=None, url=None, name=""):
         path = os.path.join(pdir, "upload_%02d.jpg" % k)
         im.save(path, "JPEG", quality=92)
         entry = {"path": path, "w": im.size[0], "h": im.size[1], "caption": "", "alt": name, "url": source,
-                 "kind": "link" if url else "upload", "credit": credit}
+                 "kind": "link" if url else "upload", "credit": credit, "needs_credit": bool(url) and not credit}
         os.remove(tmp)
     except Exception:
         probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
@@ -654,10 +697,169 @@ def add_asset(jid, data_iter=None, url=None, name=""):
         shutil.copy(frames[min(len(frames) - 1, 12)], poster)
         w, hh = Image.open(poster).size
         entry = {"path": poster, "w": w, "h": hh, "caption": "", "alt": name, "url": source, "kind": "video",
-                 "clip": clip, "frames_dir": fdir, "fps": 24, "credit": credit}
+                 "clip": clip, "frames_dir": fdir, "fps": 24, "credit": credit, "needs_credit": bool(url) and not credit}
     photos.append(entry)
     K.write_json(os.path.join(d, "photos.json"), photos)
     return {"index": k, "kind": entry["kind"], "photos": public(load(jid), full=True)["photos"]}
+
+
+# ====================================================================== brand kit
+BRAND_DIR = os.path.join(WORK, "brand")
+BRAND_FILE = os.path.join(BRAND_DIR, "brand.json")
+HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def brand():
+    """The channel's brand: name, handle, colour, logo; seeded once from the notebook settings (BRAND_*)."""
+    b = K.read_json(BRAND_FILE)
+    if b is None:
+        b = {"name": os.environ.get("BRAND_NAME", ""), "handle": os.environ.get("BRAND_HANDLE", ""),
+             "color": os.environ.get("BRAND_COLOR", "") if HEX.match(os.environ.get("BRAND_COLOR", "")) else "",
+             "corner": True, "outro": True, "logo": ""}
+        os.makedirs(BRAND_DIR, exist_ok=True)
+        K.write_json(BRAND_FILE, b)
+        src = os.environ.get("BRAND_LOGO", "")
+        if src:
+            try:
+                set_logo(url=src) if re.match(r"^https?://", src) else set_logo(data=open(src, "rb").read())
+                b = K.read_json(BRAND_FILE)
+            except Exception as e:
+                log.warning("brand logo %s not loaded: %s", src, e)
+    return b
+
+
+def brand_public():
+    b = dict(brand())
+    b["logo_url"] = "/api/brand/logo?v=%d" % int(os.path.getmtime(b["logo"])) if b.get("logo") and os.path.exists(b["logo"]) else None
+    b.pop("logo", None)
+    return b
+
+
+def set_brand(**kw):
+    b = brand()
+    for k in ("name", "handle"):
+        if kw.get(k) is not None:
+            b[k] = re.sub(r"\s+", " ", str(kw[k])).strip()[:60]
+    if kw.get("color") is not None:
+        c = str(kw["color"]).strip()
+        if c and not HEX.match(c):
+            raise ValueError("color must look like #e1261c (or be empty to use the style's colour)")
+        b["color"] = c
+    for k in ("corner", "outro"):
+        if kw.get(k) is not None:
+            b[k] = kw[k] if isinstance(kw[k], bool) else str(kw[k]).lower() in ("1", "true", "yes", "on")
+    K.write_json(BRAND_FILE, b)
+    return brand_public()
+
+
+def set_logo(data=None, url=None, remove=False):
+    """Stores the logo as a transparent PNG (any picture format; SVG is not supported)."""
+    from PIL import Image, ImageOps
+    b = K.read_json(BRAND_FILE) or brand()
+    os.makedirs(BRAND_DIR, exist_ok=True)
+    if remove:
+        b["logo"] = ""
+    else:
+        if url:
+            req = urllib.request.Request(_full_size(url), headers={"User-Agent": SRC.UA})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                data = r.read(20 << 20)
+        try:
+            im = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGBA")
+        except Exception:
+            raise ValueError("the logo must be a picture (PNG with transparency works best; SVG is not supported)")
+        bbox = im.getchannel("A").getbbox()
+        if bbox:
+            im = im.crop(bbox)                          # trim empty margins so the logo sits tight
+        im.thumbnail((900, 900))
+        path = os.path.join(BRAND_DIR, "logo_%d.png" % int(time.time()))
+        im.save(path)
+        b["logo"] = path
+    K.write_json(BRAND_FILE, b)
+    return brand_public()
+
+
+def brand_for_render(o):
+    if not o.get("brand", True):
+        return None
+    b = brand()
+    if not (b.get("name") or b.get("logo")):
+        return None
+    return {"name": b.get("name", ""), "handle": b.get("handle", ""), "color": b.get("color", ""),
+            "logo": b["logo"] if b.get("logo") and os.path.exists(b["logo"]) else "",
+            "corner": b.get("corner", True), "outro": b.get("outro", True)}
+
+
+# ====================================================================== posting (Postiz)
+def parse_when(v):
+    """'' = now; otherwise an ISO date-time ('2026-10-04T18:30', with or without a zone; no zone = UTC)."""
+    v = str(v or "").strip()
+    if not v:
+        return ""
+    import datetime
+    try:
+        d = datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError("post_at must be a date-time like 2026-10-04T18:30 (UTC) or 2026-10-04T18:30+05:45")
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=datetime.timezone.utc)
+    d = d.astimezone(datetime.timezone.utc)
+    if d.timestamp() < time.time() - 60:
+        raise ValueError("that time is in the past")
+    return d.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def job_caption(jid):
+    d = jdir(jid)
+    sb = K.read_json(os.path.join(d, "storyboard.json")) or {}
+    src = K.read_json(os.path.join(d, "source.json")) or {}
+    return PZ.caption(dict(sb, language=load(jid).get("language") or sb.get("language")), src, brand())
+
+
+def post_job(jid, targets, text=None, when="", privacy="public"):
+    """Posts (or schedules) the finished video to Postiz channels: reels to TikTok / Instagram / YouTube Shorts,
+    landscape elsewhere, unless a target names its format."""
+    job = load(jid)
+    d = jdir(jid)
+    files = {f: os.path.join(d, f + ".mp4") for f in FORMATS if os.path.exists(os.path.join(d, f + ".mp4"))}
+    if not files:
+        raise ValueError("the video is not rendered yet")
+    known = {c["id"]: c for c in PZ.channels()}
+    picked = []
+    for t in targets or []:
+        t = t if isinstance(t, dict) else {"id": str(t)}
+        c = known.get(t.get("id"))
+        if not c:
+            raise ValueError("unknown Postiz channel %r (list_channels shows the connected ones)" % t.get("id"))
+        picked.append(dict(c, format=t.get("format") or c["format"]))
+    sb = K.read_json(os.path.join(d, "storyboard.json")) or {}
+    cache_path = os.path.join(d, "postiz_media.json")
+    cache = {k: v for k, v in (K.read_json(cache_path, {}) or {}).items()
+             if k in files and v.get("mtime") == int(os.path.getmtime(files[k]))}
+    media = {k: {"id": v["id"], "path": v["path"]} for k, v in cache.items()}
+    res, media = PZ.post(files, picked, text if text is not None else job_caption(jid), sb.get("title") or job["title"],
+                         parse_when(when) if when else None, privacy, media)
+    K.write_json(cache_path, {k: dict(v, mtime=int(os.path.getmtime(files[k]))) for k, v in media.items()})
+    entry = {"at": time.time(), "when": when or "now", "channels": [{"name": c["name"], "identifier": c["identifier"],
+                                                                     "format": c["format"]} for c in picked],
+             "result": res if isinstance(res, (list, dict)) else str(res)}
+    save(job, posts=(job.get("posts") or []) + [entry])
+    log.info("%s posted to %s", jid, ", ".join(c["name"] for c in picked))
+    return entry
+
+
+def set_photo(jid, k, credit=None):
+    """Changes what is credited on screen for one of the job's pictures ("" = no credit)."""
+    d = jdir(jid)
+    photos = K.read_json(os.path.join(d, "photos.json"), []) or []
+    k = int(k)
+    if not 0 <= k < len(photos):
+        raise ValueError("there is no photo %d" % k)
+    if credit is not None:
+        photos[k]["credit"] = re.sub(r"\s+", " ", str(credit)).strip()[:80]
+        photos[k].pop("needs_credit", None)
+    K.write_json(os.path.join(d, "photos.json"), photos)
+    return {"index": k, "photos": public(load(jid), full=True)["photos"]}
 
 
 def set_storyboard(jid, sb, render=False):
@@ -708,6 +910,7 @@ def info():
             "languages": {k: (ST.lang_info(k)[1] if k != "auto" else "Same as the link") for k in LANG_CHOICES},
             "formats": list(FORMATS), "qualities": ["1080p", "720p"], "llm": LLM_MODEL, "image_model": IMAGE_MODEL or None,
             "music_model": MUSIC_MODEL or None, "tts": TTS_ENABLED, "gpus": K.gpu_info(),
+            "postiz": PZ.configured(), "brand": brand_public(),
             "motion": {"choices": list(MOTION_CHOICES), "parallax": DEPTH_ON, "cutout": CUTOUT_ON, "maps": MAPS_ON,
                        "ai": I2V_MODEL or None},
             "queue": {s: sum(1 for j in jobs if j["state"] == s) for s in ("queued", "running", "review", "done", "error")}}
@@ -759,6 +962,49 @@ def build_app():
             return add_asset(req.params["j"], url=req.arg("url"))
         return add_asset(req.params["j"], req.iter_body(limit=ASSET_LIMIT), name=req.arg("name", "") or "")
 
+    @app.route("POST", r"/api/jobs/(?P<j>[\w-]+)/photos/(?P<k>\d+)")
+    def _photo(req):
+        return set_photo(req.params["j"], req.params["k"], req.json().get("credit"))
+
+    @app.route("GET", "/api/postiz/channels")
+    def _channels(req):
+        if not PZ.configured():
+            return {"configured": False, "channels": []}
+        return {"configured": True, "channels": PZ.channels(bool(req.arg("refresh")))}
+
+    @app.route("GET", r"/api/jobs/(?P<j>[\w-]+)/caption")
+    def _caption(req):
+        return {"caption": job_caption(req.params["j"])}
+
+    @app.route("POST", r"/api/jobs/(?P<j>[\w-]+)/post")
+    def _post(req):
+        b = req.json()
+        return post_job(req.params["j"], b.get("channels"), b.get("caption"), b.get("when") or "", b.get("privacy") or "public")
+
+    @app.route("GET", "/api/brand")
+    def _brand(req):
+        return brand_public()
+
+    @app.route("POST", "/api/brand")
+    def _brand_set(req):
+        return set_brand(**req.json())
+
+    @app.route("GET", "/api/brand/logo")
+    def _logo(req):
+        b = brand()
+        if not b.get("logo") or not os.path.exists(b["logo"]):
+            raise K.HTTPError(404, "no logo yet")
+        return K.FileResponse(b["logo"])
+
+    @app.route("POST", "/api/brand/logo")
+    def _logo_set(req):
+        """The raw logo picture as the body, ?url=<link> to fetch it, or ?remove=1."""
+        if req.arg("remove"):
+            return set_logo(remove=True)
+        if req.arg("url"):
+            return set_logo(url=req.arg("url"))
+        return set_logo(data=req.body())
+
     @app.route("POST", r"/api/jobs/(?P<j>[\w-]+)/delete")
     def _delete(req):
         return delete(req.params["j"])
@@ -778,6 +1024,10 @@ def build_app():
                                   "image-to-video clips (non-news only, slow; needs I2V_MODEL); parallax; none"},
         "map": {"type": "boolean", "default": True, "description": "map fly-in to the story's place (news, 30 s+)"},
         "sfx": {"type": "boolean", "default": True, "description": "soft transition sounds"},
+        "brand": {"type": "boolean", "default": True, "description": "the channel brand (set_brand) on the corner and outro"},
+        "post_to": {"type": "array", "description": "Postiz channel ids to post the finished video to automatically"},
+        "post_at": {"type": "string", "description": "schedule the auto-post (ISO date-time, no zone = UTC); empty = now"},
+        "post_privacy": {"type": "string", "enum": ["public", "unlisted", "private"], "default": "public"},
         "style": {"type": "string", "enum": list(STYLE_CHOICES), "default": "auto",
                   "description": "auto picks broadcast for news, midnight for tech, documentary for stories"},
         "length": {"type": "integer", "enum": list(ST.LENGTHS), "default": 60, "description": "seconds"},
@@ -823,10 +1073,49 @@ def build_app():
     @app.tool("add_asset", "Add a picture or a short video clip to a job's photos from a link, credited on screen "
               "automatically: a direct image/video file (credited to its site), a video page such as YouTube or Vimeo "
               "(first 10 s, credited to the channel), or any web page (its main picture or video, credited to the site "
-              "name). Then use the returned index as a scene's photo in update_storyboard. Files from disk: POST the raw "
-              "file to /api/jobs/<id>/assets.", {"job_id": {"type": "string"}, "url": {"type": "string"}}, ["job_id", "url"])
-    def t_asset(job_id, url):
-        return add_asset(job_id, url=url)
+              "name). Storage links (Google Photos, Drive, CDNs) carry no credit unless you pass one. Then use the returned index "
+              "as a scene's photo in update_storyboard. Files from disk: POST the raw file to /api/jobs/<id>/assets.",
+              {"job_id": {"type": "string"}, "url": {"type": "string"},
+               "credit": {"type": "string", "description": "override the on-screen credit"}}, ["job_id", "url"])
+    def t_asset(job_id, url, credit=None):
+        out = add_asset(job_id, url=url)
+        return set_photo(job_id, out["index"], credit) if credit is not None else out
+
+    @app.tool("list_channels", "Social channels connected in Postiz (needs the POSTIZ_API_KEY secret): id, name, "
+              "identifier (youtube, tiktok, instagram, facebook, x, linkedin...) and the format posted there by default.", {}, [])
+    def t_channels():
+        return {"configured": PZ.configured(), "channels": PZ.channels() if PZ.configured() else []}
+
+    @app.tool("post_video", "Post a finished video through Postiz now, or schedule it. channels: ids from list_channels "
+              "(or objects {id, format: reel|landscape}); reels go to TikTok / Instagram / YouTube Shorts by default. "
+              "caption defaults to title, summary, source credit, brand handle and hashtags. when: ISO date-time to "
+              "schedule (no zone = UTC), empty = now. YouTube/TikTok privacy: public, unlisted or private.",
+              {"job_id": {"type": "string"}, "channels": {"type": "array"}, "caption": {"type": "string"},
+               "when": {"type": "string"}, "privacy": {"type": "string", "enum": ["public", "unlisted", "private"]}},
+              ["job_id", "channels"])
+    def t_post(job_id, channels, caption=None, when="", privacy="public"):
+        return post_job(job_id, channels, caption, when, privacy)
+
+    @app.tool("get_brand", "The channel brand used on every video (name, handle, colour, logo URL, corner mark, "
+              "outro card).", {}, [])
+    def t_get_brand():
+        return brand_public()
+
+    @app.tool("set_brand", "Set the channel brand: name and handle/website shown on the outro card and the corner mark, "
+              "an accent colour (#rrggbb, empty = the style's colour), a logo from a URL, and whether to show the "
+              "corner mark and the outro card. Applies to the next render.",
+              {"name": {"type": "string"}, "handle": {"type": "string"}, "color": {"type": "string"},
+               "logo_url": {"type": "string"}, "corner": {"type": "boolean"}, "outro": {"type": "boolean"}}, [])
+    def t_set_brand(logo_url=None, **kw):
+        if logo_url:
+            set_logo(url=logo_url)
+        return set_brand(**kw)
+
+    @app.tool("set_photo_credit", "Set what is credited on screen for one of a job's photos (\"\" for none), e.g. when a "
+              "Google Photos or CDN link could not be attributed automatically.",
+              {"job_id": {"type": "string"}, "index": {"type": "integer"}, "credit": {"type": "string"}}, ["job_id", "index", "credit"])
+    def t_credit(job_id, index, credit):
+        return set_photo(job_id, index, credit)
 
     @app.tool("render", "Render (or re-render) a job, optionally with new options. rewrite=true (or a new language) "
               "writes a new script first.", dict({"job_id": {"type": "string"}, "rewrite": {"type": "boolean", "default": False}},

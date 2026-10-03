@@ -83,8 +83,21 @@ details.sb>summary{cursor:pointer;font-weight:700;font-size:15px;margin:14px 0;p
 .pick .opt .tag{position:absolute;left:3px;bottom:3px;font-size:10px;background:rgba(0,0,0,.65);color:#fff;border-radius:4px;padding:0 4px}
 .pick .opt.up{border:2px dashed var(--line)}.pick .opt.up:hover{border-color:var(--accent);color:var(--accent)}
 .linkrow{display:flex;gap:6px;margin-top:6px}.linkrow[hidden]{display:none}.linkrow input{flex:1;min-width:0}
-.credit-note{font-size:11.5px;color:var(--muted);margin-top:2px}
+.credit-note{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);margin-top:4px}
+.credit-note input{flex:1;min-width:0;padding:5px 8px;font-size:12.5px}.credit-note.warn{color:var(--warn)}
 .empty-hero{color:var(--muted);text-align:center;padding:30px 10px}
+.brandrow{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.logobox{width:132px;height:132px;border-radius:14px;border:1px dashed var(--line);display:flex;align-items:center;justify-content:center;
+ color:var(--muted);font-size:12px;background:repeating-conic-gradient(var(--panel2) 0 25%,transparent 0 50%) 0 0/16px 16px;flex:none}
+.logobox img{max-width:118px;max-height:118px;object-fit:contain}
+.chans{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.chan{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:4px 10px 4px 4px;cursor:pointer;font-size:13px;background:var(--panel2)}
+.chan img{width:24px;height:24px;border-radius:50%;object-fit:cover;background:var(--line)}
+.chan .av{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#fff;font-size:12px;font-weight:700}
+.chan.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
+.chan .fmt{font-size:11px;color:var(--muted);border-left:1px solid var(--line);padding-left:6px;cursor:pointer}
+.postbox{margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--panel2)}
+.postbox textarea{min-height:110px}
 @media (max-width:640px){.steps{grid-template-columns:repeat(4,1fr)}.prog .pct{font-size:32px}.brand{font-size:18px}.go{width:100%;margin-left:0}.scene{grid-template-columns:1fr}.scene img,.scene .noimg{width:100%;height:160px}}
 </style></head><body>
 <header class="topbar">
@@ -97,7 +110,9 @@ details.sb>summary{cursor:pointer;font-weight:700;font-size:15px;margin:14px 0;p
   <div class="head"><b>Your videos</b><button class="primary" style="margin-left:auto" id="newbtn">+ New</button></div>
   <div class="list" id="jobs"><div class="empty">No videos yet.</div></div>
   <div class="foot">
+    <button id="brandbtn">🏷 Brand (logo, name, handle)</button>
     <button id="agentsbtn">🤖 Use from Claude / agents</button>
+    <div class="small muted" id="pzstate"></div>
     <a class="btn" href="/logout">↩ Sign out</a>
     <div class="small muted" id="models"></div>
   </div>
@@ -125,10 +140,35 @@ details.sb>summary{cursor:pointer;font-weight:700;font-size:15px;margin:14px 0;p
         <label class="inline"><input type="checkbox" id="music" checked> Background music</label>
         <label class="inline"><input type="checkbox" id="captions" checked> Captions</label>
         <label class="inline"><input type="checkbox" id="review"> Let me edit the script first</label>
+        <label class="inline"><input type="checkbox" id="brandon" checked> My brand on the video</label>
+      </div>
+      <div id="autopost" hidden style="margin-top:12px">
+        <div class="small muted">Post automatically when ready (Postiz)</div>
+        <div class="chans" id="apchans"></div>
+        <div class="row" style="margin-top:8px"><label>When<input type="datetime-local" id="apwhen"></label>
+          <label>Privacy<select id="appriv"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label></div>
       </div>
     </details>
   </section>
   <section id="detail" style="margin-top:16px"></section>
+  <section id="brandcard" class="card" style="margin-top:16px" hidden>
+    <h2>Your brand</h2>
+    <p class="small muted">Shown on every video: a corner mark (the channel bug in the broadcast style) and an end card with your logo, name and handle. Kept for this Kaggle session; set BRAND_* in the notebook's settings to have it every time.</p>
+    <div class="brandrow">
+      <div class="logobox" id="logobox">No logo</div>
+      <div class="col" style="flex:1;min-width:0">
+        <div class="row"><label style="flex:1">Name<input id="bname" placeholder="e.g. Echo News Nepal"></label>
+          <label style="flex:1">Handle or website<input id="bhandle" placeholder="@echonews · echonews.com"></label></div>
+        <div class="row"><label>Accent colour<span class="row"><input type="color" id="bcolor" value="#e1261c"><label class="inline"><input type="checkbox" id="bcoloron"> use it</label></span></label>
+          <label class="inline"><input type="checkbox" id="bcorner" checked> Corner mark</label>
+          <label class="inline"><input type="checkbox" id="boutro" checked> End card</label></div>
+        <div class="row"><button id="blogoup">⬆ Upload logo</button><input type="file" id="blogofile" accept="image/*" hidden>
+          <input id="blogourl" placeholder="…or a link to the logo" style="flex:1;min-width:0"><button id="blogolink">Use link</button>
+          <button id="blogorm" class="danger">Remove logo</button></div>
+        <div class="row"><button class="primary" id="bsave">Save brand</button></div>
+      </div>
+    </div>
+  </section>
   <section id="agents" class="card" style="margin-top:16px" hidden>
     <h2>Use from Claude Code or other agents</h2>
     <pre class="log" id="mcp"></pre>
@@ -146,6 +186,7 @@ const open = v => document.body.classList.toggle("open", v);
 $("#ham").onclick = () => open(!document.body.classList.contains("open"));
 $("#scrim").onclick = () => open(false);
 $("#newbtn").onclick = () => { cur = null; viewKey = ""; open(false); $("#detail").replaceChildren(); $("#source").focus(); window.scrollTo({top: 0, behavior: "smooth"}); };
+$("#brandbtn").onclick = () => { $("#brandcard").hidden = false; open(false); loadBrand(); $("#brandcard").scrollIntoView({behavior: "smooth"}); };
 $("#agentsbtn").onclick = () => { $("#agents").hidden = false; open(false); $("#agents").scrollIntoView({behavior: "smooth"}); };
 $$("#len button").forEach(b => b.onclick = () => { length = +b.dataset.v; $$("#len button").forEach(x => x.classList.toggle("on", x === b)); });
 ["fl", "fr"].forEach(id => $("#" + id).onclick = e => e.currentTarget.classList.toggle("on"));
@@ -154,7 +195,9 @@ $("#source").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrl
 function opts() {
   return {style, length, language: $("#language").value, voice: $("#voice").value, quality: $("#quality").value,
           music: $("#music").checked, captions: $("#captions").checked, review: $("#review").checked,
-          motion: $("#motion").value, map: $("#map").checked, sfx: $("#sfx").checked,
+          motion: $("#motion").value, map: $("#map").checked, sfx: $("#sfx").checked, brand: $("#brandon").checked,
+          post_to: $$("#apchans .chan.on").map(c => ({id: c.dataset.id, format: c.dataset.fmt})),
+          post_at: $("#apwhen").value ? new Date($("#apwhen").value).toISOString() : "", post_privacy: $("#appriv").value,
           formats: [$("#fl").classList.contains("on") && "landscape", $("#fr").classList.contains("on") && "reel"].filter(Boolean)};
 }
 $("#go").onclick = async () => {
@@ -164,6 +207,65 @@ $("#go").onclick = async () => {
   try { const j = await guard(() => api("/api/jobs", {json: {source: $("#source").value, ...o}}), "Started"); cur = j.id; editing = false; sbOpen = false; viewKey = ""; $("#source").value = ""; loadJobs(); show(); }
   finally { $("#go").disabled = false; }
 };
+
+// ---------------------------------------------------------------- brand
+async function loadBrand() {
+  const b = await api("/api/brand");
+  $("#bname").value = b.name || ""; $("#bhandle").value = b.handle || "";
+  $("#bcoloron").checked = !!b.color; if (b.color) $("#bcolor").value = b.color;
+  $("#bcorner").checked = b.corner !== false; $("#boutro").checked = b.outro !== false;
+  $("#logobox").replaceChildren(b.logo_url ? el("img", {src: b.logo_url, alt: "logo"}) : "No logo");
+}
+$("#bsave").onclick = () => guard(async () => { await api("/api/brand", {json: {name: $("#bname").value, handle: $("#bhandle").value,
+  color: $("#bcoloron").checked ? $("#bcolor").value : "", corner: $("#bcorner").checked, outro: $("#boutro").checked}}); loadBrand(); }, "Brand saved");
+$("#blogoup").onclick = () => $("#blogofile").click();
+$("#blogofile").onchange = e => guard(async () => { const f = e.target.files[0]; if (!f) return;
+  const r = await fetch("/api/brand/logo", {method: "POST", body: f}); if (!r.ok) throw new Error((await r.json()).error); loadBrand(); }, "Logo saved");
+$("#blogolink").onclick = () => guard(async () => { await api("/api/brand/logo?url=" + encodeURIComponent($("#blogourl").value), {method: "POST"});
+  $("#blogourl").value = ""; loadBrand(); }, "Logo saved");
+$("#blogorm").onclick = () => guard(async () => { await api("/api/brand/logo?remove=1", {method: "POST"}); loadBrand(); }, "Logo removed");
+
+// ---------------------------------------------------------------- Postiz
+let CHANNELS = null;
+function chanChip(c, on) {
+  const chip = el("div", {class: "chan" + (on ? " on" : ""), "data-id": c.id, "data-fmt": c.format, title: c.identifier},
+    c.picture ? el("img", {src: c.picture, alt: "", onerror: e => e.target.replaceWith(el("span", {class: "av"}, (c.name || "?")[0].toUpperCase()))})
+              : el("span", {class: "av"}, (c.name || "?")[0].toUpperCase()), c.name, el("span", {class: "fmt", title: "Click to switch between reel and 16:9"}, c.format === "reel" ? "9:16" : "16:9"));
+  chip.onclick = e => {
+    if (e.target.classList.contains("fmt")) { chip.dataset.fmt = chip.dataset.fmt === "reel" ? "landscape" : "reel";
+      e.target.textContent = chip.dataset.fmt === "reel" ? "9:16" : "16:9"; return; }
+    chip.classList.toggle("on");
+  };
+  return chip;
+}
+async function loadChannels() {
+  if (!INFO.postiz) { $("#pzstate").textContent = "Auto-posting: add a POSTIZ_API_KEY secret to connect Postiz"; return; }
+  try { CHANNELS = (await api("/api/postiz/channels")).channels; } catch (e) { $("#pzstate").textContent = "Postiz: " + e.message; return; }
+  $("#pzstate").textContent = "Postiz: " + CHANNELS.length + " channel(s) connected";
+  $("#autopost").hidden = !CHANNELS.length;
+  $("#apchans").replaceChildren(...CHANNELS.map(c => chanChip(c, false)));
+}
+function postPanel(j) {
+  const box = el("div", {class: "postbox"}, el("h3", {style: {marginTop: 0}}, "📣 Post to social"));
+  if (!INFO.postiz || !CHANNELS) { box.append(el("p", {class: "small muted"}, INFO.postiz ? "Loading channels…" : "Connect Postiz to post from here: add your Postiz API key as the POSTIZ_API_KEY Kaggle secret and re-run the studio cell.")); return box; }
+  if (!CHANNELS.length) { box.append(el("p", {class: "small muted"}, "No channels are connected in your Postiz account yet.")); return box; }
+  const chips = el("div", {class: "chans"}, ...CHANNELS.map(c => chanChip(c, false)));
+  const cap = el("textarea", {placeholder: "Caption"}), when = el("input", {type: "datetime-local"});
+  const priv = el("select", {}, ...["public", "unlisted", "private"].map(v => el("option", {value: v}, v[0].toUpperCase() + v.slice(1))));
+  api("/api/jobs/" + j.id + "/caption").then(r => { if (!cap.value) cap.value = r.caption; }).catch(() => {});
+  const go = el("button", {class: "primary", onclick: () => guard(async () => {
+    const chans = $$(".chan.on", chips).map(c => ({id: c.dataset.id, format: c.dataset.fmt}));
+    if (!chans.length) throw new Error("Pick at least one channel");
+    await api("/api/jobs/" + j.id + "/post", {json: {channels: chans, caption: cap.value, privacy: priv.value,
+      when: when.value ? new Date(when.value).toISOString() : ""}});
+    viewKey = ""; show(); }, "Sent to Postiz")}, "Post now / schedule");
+  box.append(el("div", {class: "small muted"}, "Channels (click 9:16 / 16:9 to switch the format)"), chips,
+    el("label", {style: {marginTop: "10px"}}, "Caption", cap),
+    el("div", {class: "row"}, el("label", {}, "Schedule (empty = now)", when), el("label", {}, "Privacy (YouTube, TikTok)", priv), go));
+  (j.posts || []).forEach(p => box.append(el("div", {class: "small muted"}, "✓ " + (p.when === "now" ? "Posted" : "Scheduled for " + new Date(p.when).toLocaleString()) +
+    " to " + p.channels.map(c => c.name + " (" + (c.format === "reel" ? "9:16" : "16:9") + ")").join(", ") + " · " + fmtAgo(p.at))));
+  return box;
+}
 
 async function loadInfo() {
   INFO = await api("/api/info");
@@ -238,7 +340,20 @@ function drawPick(box, i, cur) {
   const thumb = $(`[data-thumb="${i}"]`), sel = PHOTOS.find(p => p.index === +cur);
   if (thumb && sel) thumb.replaceChildren(el("img", {src: sel.url, alt: ""}));
   const note = box.parentElement && box.parentElement.querySelector(".credit-note");
-  if (note) note.textContent = sel && sel.credit ? "On screen: " + sel.credit : sel && sel.kind === "upload" ? "Your picture: no credit shown" : "";
+  if (note) creditField(note, sel);
+}
+function creditField(note, sel) {
+  note.replaceChildren(); note.classList.remove("warn");
+  if (!sel || sel.kind === "page") { note.textContent = sel ? "Credited to the article's site" : ""; return; }
+  const inp = el("input", {value: sel.credit || "", placeholder: sel.kind === "upload" ? "No credit (your own picture)" : "Who took it? e.g. Ram Sharma / Kathmandu Post"});
+  inp.addEventListener("change", async () => {
+    try { const r = await api("/api/jobs/" + JOBID + "/photos/" + sel.index, {json: {credit: inp.value}}); PHOTOS = r.photos;
+          $$("[data-pick]").forEach(b => drawPick(b, +b.dataset.pick, $(`[data-i="${b.dataset.pick}"][data-k="photo"]`).value));
+          toast(inp.value ? "Credit saved: " + inp.value : "Credit removed", "ok"); } catch (e) { toast(e.message, "bad"); }
+  });
+  if (sel.needs_credit && !sel.credit) { note.classList.add("warn"); note.append("⚠ This link can't be credited automatically: "); }
+  else note.append("Credit on screen: ");
+  note.append(inp);
 }
 function linkRow(box) {
   const inp = el("input", {type: "url", placeholder: "Link to a picture, a video (YouTube, Vimeo…) or a web page"});
@@ -308,6 +423,7 @@ async function show() {
       j.files["landscape.mp4"] ? el("div", {class: "player land"}, el("video", {src: j.files["landscape.mp4"], controls: true, preload: "metadata", poster: j.files["landscape.jpg"] || null}),
         el("a", {class: "btn primary", href: j.files["landscape.mp4"] + "?download=1"}, "⬇ Landscape 16:9")) : null));
   }
+  if (j.state === "done") parts.push(postPanel(j));
   if ((j.photos || []).length) parts.push(el("h3", {}, "Photos from the link"), el("div", {class: "strip"}, ...j.photos.map(p => el("img", {src: p.url, title: p.description || p.caption || "", alt: ""}))));
   PHOTOS = j.photos || []; JOBID = j.id;
   if (j.storyboard) {
@@ -331,7 +447,7 @@ async function show() {
   $$("input,textarea", d).forEach(e => e.addEventListener("input", () => { editing = true; }));
 }
 
-loadInfo().then(loadJobs);
+loadInfo().then(loadChannels).then(loadJobs);
 every(5000, loadInfo);
 every(3000, loadJobs);
 </script></body></html>

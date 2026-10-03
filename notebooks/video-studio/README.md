@@ -4,7 +4,7 @@
 
 Paste a link and get a narrated video with music as **16:9 landscape** and **9:16 reel**. Links can be news articles (Nepali or English), any web page, GitHub repos, YouTube videos or PDFs; you can also describe an idea. It uses the link's **own photos**, speaks the link's **language**, and picks a look from the content. Inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) and [HyperFrames](https://github.com/heygen-com/hyperframes).
 
-- Secrets: `VIDEO_TUNNEL_TOKEN` (required for a public URL), `VIDEO_UI_PASSWORD` (sign-in password), `GITHUB_TOKEN` (optional)
+- Secrets: `VIDEO_TUNNEL_TOKEN` (required for a public URL), `VIDEO_UI_PASSWORD` (sign-in password), `GITHUB_TOKEN` (optional), `POSTIZ_API_KEY` (optional, for posting)
 - Accelerator: GPU T4 x2 (scriptwriter on GPU 0; voices, images and music on GPU 1). One GPU works.
 - Regenerate the notebook: `python src/build_notebook.py`
 
@@ -42,25 +42,57 @@ The page has a sign-in screen (no browser pop-up), then a single box: paste a li
 
 **Pick each scene's picture in the script editor:** every scene has a strip with *Auto*, *No picture*, all the link's photos, **＋ Upload** (your own picture or video clip: mp4 / mov / webm, the first 10 s play in the scene) and **🔗 Link**. A link can be a picture or video file, a video page (YouTube, Vimeo, Facebook, X, TikTok, Instagram: the first 10 s, via yt-dlp) or any web page (its main picture or video). **Links are credited automatically** on screen ("Photo: Kathmandu Post", "Video: channel · Youtube"); your own uploads show no credit. Everything added appears in every scene's strip. Tick *Let me edit the script first* to choose before the first render, or edit and re-render afterwards.
 
+## Your brand
+
+Set your channel's **name, handle or website, logo and colour** once (notebook settings `BRAND_NAME`, `BRAND_HANDLE`, `BRAND_LOGO`, `BRAND_COLOR`, or ☰ → Brand on the page) and every video gets:
+- a **corner mark** with your logo (in the broadcast style it replaces the site chip in the channel bug); the source is still credited on the photos and the end card;
+- an **end card** with your logo, name and handle, and the source underneath;
+- your **accent colour** on labels, bars and transitions (optional).
+
+Logos: PNG with transparency works best (empty margins are trimmed); SVG is not supported. Page settings last for the Kaggle session; the notebook settings apply every time. Untick *My brand on the video* for a one-off video without it.
+
+## Credits for pictures you add
+
+Link credits come from the page: a news site's own name ("Photo: Kathmandu Post"), a video's channel. **Storage links say nothing about who took a picture.** That covers a Google Photos "copy link address" (`lh3.googleusercontent.com/...`), Drive, Dropbox, Imgur and CDNs, so these get **no automatic credit**. The editor marks them ⚠ and gives every added picture a *Credit on screen* box to type the photographer or owner (agents: `set_photo_credit`). Google Photos links are fetched at full size.
+
+## Posting with Postiz
+
+[Postiz](https://postiz.com) (open source) holds your social accounts: YouTube, TikTok, Instagram, Facebook, X, LinkedIn, Threads, Bluesky and more. Put your Postiz API key (Postiz → Settings → Public API) in the `POSTIZ_API_KEY` secret. For self-hosted Postiz, set `POSTIZ_API_URL = "https://<your-postiz>/api/public/v1"`.
+- **After a video is done:** *Post to social* lists your channels. Reels go to TikTok, Instagram and YouTube (Shorts); 16:9 goes everywhere else. Click 9:16 / 16:9 on a channel to switch.
+  - The caption is pre-filled with the title, summary, source credit, your handle and hashtags.
+  - Post now or pick a time to schedule. YouTube and TikTok privacy can be public, unlisted or private.
+- **Automatically:** under *More options*, pick channels in *Post automatically when ready*; the video is posted (or scheduled) as soon as it renders.
+- TikTok posts declare the video as made with AI. Postiz cloud allows about 30 API calls an hour, so each format is uploaded once per video and reused.
+
+## Narration
+
+Numbers, decimals and percentages in Nepali are read as words (५ जना → पाँच जना, २०८२ → दुई हजार बयासी, ३.५% → तीन दशमलव पाँच प्रतिशत). Scripts are shortened by whole sentences only. Speech is sped up by at most 8% to fit the length, and sad news is read slowly. Transition sounds step back while someone speaks.
+
 ## API
 
 ```
 POST /api/jobs {"source", "style": "auto"|"broadcast"|"documentary"|..., "length": 15|30|60|90, "language": "auto"|"ne"|"en"|...,
                 "voice": "auto"|"ne_amrita"|"ne_piper"|"af_heart"|..., "music", "captions", "formats": ["landscape", "reel"],
-                "quality": "1080p"|"720p", "motion": "auto"|"parallax"|"ai"|"none", "map": true, "sfx": true, "review": false}
+                "quality": "1080p"|"720p", "motion": "auto"|"parallax"|"ai"|"none", "map": true, "sfx": true, "brand": true,
+                "post_to": [channel ids], "post_at": "2026-10-04T18:30+05:45", "post_privacy": "public", "review": false}
 GET  /api/jobs                              list
 GET  /api/jobs/<id>?wait=60                 state, progress, files, storyboard, photos
 POST /api/jobs/<id>/storyboard {"storyboard", "render": true}
 POST /api/jobs/<id>/render {options..., "rewrite": false}
 POST /api/jobs/<id>/assets?name=clip.mp4      raw picture or video as the body (up to 200 MB) -> {"index", "kind", "photos"}
 POST /api/jobs/<id>/assets?url=<link>         picture / video / video page / web page from a link, credited automatically
+POST /api/jobs/<id>/photos/<index> {"credit"}  what is credited on screen for that picture ("" = none)
+GET  /api/jobs/<id>/caption                    suggested social caption
+POST /api/jobs/<id>/post {"channels": [id | {id, format}], "caption", "when", "privacy"}   post or schedule via Postiz
+GET  /api/postiz/channels                      connected Postiz channels
+GET|POST /api/brand  {name, handle, color, corner, outro};  POST /api/brand/logo (raw picture, ?url= or ?remove=1)
 POST /api/jobs/<id>/delete
 GET  /api/jobs/<id>/files/landscape.mp4 | reel.mp4 | landscape.jpg | reel.jpg   (?download=1 to save)
 ```
 
 ## MCP tools
 
-`make_video(source, style?, length?, language?, voice?, music?, captions?, formats?, quality?, motion?, map?, sfx?, review?, wait_seconds?)`, `get_job(job_id, wait_seconds?)`, `get_storyboard(job_id)`, `update_storyboard(job_id, storyboard, render?)` (scene `photo`: index, -1 auto, -2 none), `add_asset(job_id, url)`, `render(job_id, rewrite?, ...options)`, `list_jobs`, `delete_job`, `list_options`.
+`make_video(source, style?, length?, language?, voice?, music?, captions?, formats?, quality?, motion?, map?, sfx?, brand?, post_to?, post_at?, post_privacy?, review?, wait_seconds?)`, `get_job(job_id, wait_seconds?)`, `get_storyboard(job_id)`, `update_storyboard(job_id, storyboard, render?)` (scene `photo`: index, -1 auto, -2 none), `add_asset(job_id, url, credit?)`, `set_photo_credit(job_id, index, credit)`, `get_brand`, `set_brand(name?, handle?, color?, logo_url?, corner?, outro?)`, `list_channels`, `post_video(job_id, channels, caption?, when?, privacy?)`, `render(job_id, rewrite?, ...options)`, `list_jobs`, `delete_job`, `list_options`.
 
 ## Licences and responsibility
 

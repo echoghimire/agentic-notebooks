@@ -212,6 +212,20 @@ pre .cur{display:inline-block;width:1.4vmin;height:3.2vmin;background:var(--acce
  border-radius:0 .8vmin .8vmin .8vmin}
 .reel .l3 .h{font-size:6.2vmin}
 .l3 .s{background:rgba(255,255,255,.92);color:#111;font:600 3vmin/1.35 var(--font);padding:1.2vmin 2.8vmin;display:inline-block;margin-top:.8vmin;border-radius:.6vmin}
+/* brand: corner mark, bug chip, outro card */
+.bmark{position:absolute;right:4vmin;top:4vmin;z-index:31;display:flex;align-items:center;gap:1.2vmin;padding:.8vmin 1.4vmin;
+ border-radius:1vmin;background:rgba(0,0,0,.4);color:#fff;font:700 2.3vmin var(--font);box-shadow:0 .4vmin 1.6vmin rgba(0,0,0,.25)}
+.bmark img{height:4.4vmin;max-width:16vmin;object-fit:contain;display:block}
+.hasmark.reel .credit{top:12.5vmin}
+.bars .bmark{top:8.5vmin;z-index:47}.bars.hasmark.reel .credit{top:16vmin}
+.plate{flex-shrink:0}
+.pc.reel .boutro .logo{height:20vmin;margin-bottom:2vmin}
+.bug .site.brandchip{display:flex;align-items:center;gap:.9vmin}.bug .site.brandchip img{height:2.8vmin;max-width:10vmin;object-fit:contain}
+.boutro .logo{display:block;height:24vmin;max-width:70%;object-fit:contain;margin:0 auto 3.5vmin;filter:drop-shadow(0 1vmin 3vmin rgba(0,0,0,.45));
+ animation:pop .9s cubic-bezier(.2,.9,.25,1.2) .15s both}
+.reel .boutro .logo{height:30vmin}
+.boutro .handle{font:700 4.4vmin var(--font);color:var(--accent);margin-top:2.2vmin}
+.boutro .srcline{font:500 2.6vmin var(--font);color:var(--muted);margin-top:4.5vmin}
 /* motion-graphic accents: a light sweep over headline panels, a drawn-on underline, drifting dust */
 .l3 .h,.plate{position:relative;overflow:hidden}
 .l3 .h::after,.plate::after{content:"";position:absolute;top:0;bottom:0;left:-40%;width:30%;pointer-events:none;
@@ -425,6 +439,8 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
     facts = src.get("facts") or {}
     site = str(facts.get("site") or "")
     lay = {"image": "photo"}.get(scene["layout"], scene["layout"])
+    br = story.get("brand") or {}
+    mark = bool(br.get("corner") and (br.get("logo") or br.get("name")) and lay != "outro" and style != "broadcast")
     h = scene.get("heading") or ""
     broadcast = style == "broadcast"
     bg = '<div class="blob a"></div><div class="blob b"></div>'
@@ -489,6 +505,16 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
         bg += photo_layer(photo, idx, fmt)
         body = ('<div class="content qt"><div class="qmark up">&ldquo;</div><div class="quote up" style="animation-delay:.3s">%s</div>'
                 '<div class="src up" style="animation-delay:.9s">%s</div></div>') % (esc(scene.get("quote")), esc(scene.get("heading") or src.get("title")))
+    elif lay == "outro" and br.get("outro") and (br.get("logo") or br.get("name")):
+        bg += photo_layer(photo, idx, fmt)
+        url = re.sub(r"^https?://(www\.)?", "", str(src.get("url") or "")).rstrip("/")
+        url = url if src.get("kind") == "github" else url.split("/")[0]
+        logo = '<img class="logo" data-bg="%s" src="%s" alt="">' % (esc(_url(br["logo"])), esc(_url(br["logo"]))) if br.get("logo") else ""
+        inner = '%s%s%s%s' % (logo, '<h1>%s</h1>' % words(br["name"], .5) if br.get("name") else "",
+                              '<div class="handle up" style="animation-delay:1s">%s</div>' % esc(br["handle"]) if br.get("handle") else "",
+                              '<div class="srcline up" style="animation-delay:1.3s">%s: %s</div>' % (esc(L["source"]), esc(url[:70])) if url else "")
+        body = ('<div class="content center boutro"><div class="plate up">%s</div></div>' if photo else
+                '<div class="content center boutro">%s</div>') % inner
     else:  # outro
         bg += photo_layer(photo, idx, fmt)
         url = re.sub(r"^https?://(www\.)?", "", str(src.get("url") or "")).rstrip("/")
@@ -501,7 +527,11 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
             '<div class="url up" style="animation-delay:1.1s">%s: %s</div>' % (esc(L["source"]), esc(url[:70])) if url else "")
     furniture = ""
     if broadcast:
-        furniture = '<div class="bug"><span class="live">%s</span>%s</div>' % (esc(L["latest"]), '<span class="site">%s</span>' % esc(site) if site else "")
+        chip = '<span class="site">%s</span>' % esc(site) if site else ""
+        if br.get("corner") and (br.get("logo") or br.get("name")):   # the channel's own mark instead of the source site
+            chip = '<span class="site brandchip">%s%s</span>' % (
+                '<img data-bg="%s" src="%s" alt="">' % (esc(_url(br["logo"])), esc(_url(br["logo"]))) if br.get("logo") else "", esc(br.get("name", "")))
+        furniture = '<div class="bug"><span class="live">%s</span>%s</div>' % (esc(L["latest"]), chip)
         if lay not in ("title", "headline", "outro"):
             furniture += '<div class="ticker"><div class="lab">%s</div><div class="run">%s</div></div>' % (
                 esc(site or L["latest"]), esc(" • ".join(x for x in (story.get("title"), story.get("tagline")) if x)))
@@ -517,13 +547,19 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
         pa = photo.get("w", 1) / float(photo.get("h", 1) or 1)
         var = ("--below:%.1fvmin" % (13 + max(46, min(70, 100 / pa)) + 6) if fmt == "reel"
                else "--beside:%.1fvmin" % (max(56, min(100, 100 * pa)) + 8))
-    cls = " ".join(filter(None, [fmt, style, "onphoto" if onphoto else "", "pc" if pc else "", "light" if style in LIGHT else "", "deva" if lang in DEVANAGARI_LANGS else "",
+    cls = " ".join(filter(None, [fmt, style, "onphoto" if onphoto else "", "pc" if pc else "", "hasmark" if mark else "", "light" if style in LIGHT else "", "deva" if lang in DEVANAGARI_LANGS else "",
                                  "dim" if lay in ("title", "outro", "quote") and not broadcast else "",
                                  "bars" if style == "documentary" else "", "first" if idx == 0 else "", "last" if idx == n - 1 else ""]))
-    st = dict(STYLES[style], dur="%.3f" % dur, p0="%.3f" % p0, p1="%.3f" % p1, grain=GRAIN, kb="kbin")
+    st = dict(STYLES[style], **({"accent": br["color"]} if re.match(r"^#[0-9a-fA-F]{6}$", br.get("color") or "") else {}))
+    st = dict(st, dur="%.3f" % dur, p0="%.3f" % p0, p1="%.3f" % p1, grain=GRAIN, kb="kbin")
     cps = max(18.0, len(scene.get("code") or "") / max(1.0, dur - 2.2))
     transition = '<div class="wipe"></div>' if broadcast else '<div class="veil"></div>'
     num = '<div class="num">%d / %d</div>' % (idx + 1, n) if not broadcast else ""
+    if lay == "outro" and br.get("outro") and (br.get("logo") or br.get("name")):
+        num = ""
+    if mark:
+        num = '<div class="bmark">%s%s</div>' % ('<img data-bg="%s" src="%s" alt="">' % (esc(_url(br["logo"])), esc(_url(br["logo"])))
+                                                 if br.get("logo") else "", esc(br.get("name", "")) if not br.get("logo") or len(br.get("name", "")) <= 18 else "")
     return ('<!doctype html><html class="%s" style="%s" lang="%s"><head><meta charset="utf-8"><style>%s</style></head><body>'
             '<div class="stage">%s</div>%s%s%s%s%s%s<div class="progress"></div>%s'
             '<script>%s</script></body></html>') % (
