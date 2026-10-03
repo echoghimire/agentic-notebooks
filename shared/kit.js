@@ -21,6 +21,7 @@ async function api(path, opts = {}) {
   if (opts.json !== undefined) { init.body = JSON.stringify(opts.json); init.headers["Content-Type"] = "application/json"; }
   else if (opts.body) init.body = opts.body;
   const r = await fetch(path, init);
+  if (r.status === 401) { location.reload(); throw new Error("Signed out; please sign in again"); }
   const ct = r.headers.get("Content-Type") || "";
   const data = ct.includes("json") ? await r.json() : await r.text();
   if (!r.ok) throw new Error((data && data.error) || r.status + " " + r.statusText);
