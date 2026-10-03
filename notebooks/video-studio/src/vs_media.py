@@ -221,7 +221,9 @@ def mix(total, narrations, music_path, out_path, tone="neutral", cuts=None):
         out = out + m * gain
     if cuts is not None:
         import vs_motion
-        out = out + vs_motion.sfx_track(total, cuts, OUT_RATE, tone)[:len(out)]
+        fx = vs_motion.sfx_track(total, cuts, OUT_RATE, tone)[:len(out)]
+        env = np.convolve(np.abs(voice), np.ones(int(0.25 * OUT_RATE), np.float32) / int(0.25 * OUT_RATE), mode="same")
+        out = out + fx * (1 - 0.85 * np.clip(env / 0.02, 0, 1))     # sounds step back whenever someone speaks
     peak = np.abs(out).max()
     if peak > 0.97:
         out = out * (0.97 / peak)

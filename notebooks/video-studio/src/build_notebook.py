@@ -30,7 +30,7 @@ Inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) and [Hyp
 |---|---|
 | `/` | The studio: paste a link, pick 15/30/60/90 s and formats, watch progress, play and download both videos, edit the script |
 | `/api/*` | JSON API |
-| `/mcp` | MCP server for agents (tools: `make_video`, `get_job`, `get_storyboard`, `update_storyboard`, `add_asset`, `render`, `list_jobs`, `delete_job`, `list_options`) |
+| `/mcp` | MCP server for agents (tools: `make_video`, `get_job`, `get_storyboard`, `update_storyboard`, `add_asset`, `set_photo_credit`, `get_brand`, `set_brand`, `list_channels`, `post_video`, `render`, `list_jobs`, `delete_job`, `list_options`) |
 
 ### Before you run
 1. **Accelerator:** GPU T4 x2 (one GPU works, more slowly). **Internet:** on.
@@ -39,6 +39,7 @@ Inspired by [nexu-io/html-video](https://github.com/nexu-io/html-video) and [Hyp
    - `VIDEO_TUNNEL_TOKEN`: the tunnel token. Without it everything still runs, only without a public URL.
    - `VIDEO_UI_PASSWORD` (recommended): the password for the studio's sign-in page; agents send `Authorization: Bearer <password>`. Without it a random password is printed below.
    - `GITHUB_TOKEN` (optional): any GitHub token, to lift the API limit of 60 repository lookups an hour.
+   - `POSTIZ_API_KEY` (optional): your [Postiz](https://postiz.com) API key (Postiz → Settings → Public API) to post finished videos to YouTube, TikTok, Instagram, Facebook, X, LinkedIn… straight from the studio, or automatically.
 4. **Run All.** First run: about 12–15 minutes (installs + ~20 GB of models). Then a 60-second video takes roughly 5–10 minutes on T4 x2; 720p renders about twice as fast.
 
 ### Licences and responsibility
@@ -65,6 +66,13 @@ LOCATION_MAPS = True                                        # map fly-in to the 
 I2V_MODEL = ""                                              # AI video clips for NON-news topics, picked per video as Motion "AI":
                                                             # "ltx" (LTX-Video, faster) or "wan" (Wan 2.2 5B, slow); "" = off
 RENDER_QUALITY = "1080p"                                    # or "720p" (about twice as fast); the page can override it
+# Your brand, on every video (corner mark + end card); can also be set on the page (☰ → Brand)
+BRAND_NAME = ""                                             # e.g. "Echo News Nepal"
+BRAND_HANDLE = ""                                           # e.g. "@echonewsnp" or "echonews.com"
+BRAND_LOGO = ""                                             # a link to the logo, or a file under /kaggle/input (PNG with transparency)
+BRAND_COLOR = ""                                            # e.g. "#1f7ae0"; "" = each style's own colour
+# Auto-posting through Postiz (API key in the POSTIZ_API_KEY secret)
+POSTIZ_API_URL = "https://api.postiz.com/public/v1"         # self-hosted Postiz: "https://<your-postiz>/api/public/v1"
 PORT = 7860
 WORK_DIR = "/kaggle/working/video_studio"
 LOG_DIR = "/kaggle/working/logs"
@@ -84,6 +92,7 @@ for name, title in [("vs_source.py", "Reads any link: articles (trafilatura), Gi
                     ("vs_media.py", "Photos, images (SDXL), music (MusicGen), Kokoro voices, audio mix"),
                     ("vs_tts.py", "Voices by language: Indic Parler-TTS, Svara-TTS, Piper, Kokoro, online voices"),
                     ("vs_motion.py", "Motion: depth parallax, subject cut-outs, location maps, transition sounds, AI clips"),
+                    ("vs_postiz.py", "Posting to social channels through Postiz"),
                     ("vs_parler_worker.py", "Indic Parler-TTS worker (runs in its own virtualenv)"),
                     ("vs_ace_worker.py", "ACE-Step music worker (runs in its own virtualenv)"),
                     ("vs_render.py", "Renderer: headless Chromium frames -> ffmpeg"),
@@ -237,13 +246,17 @@ env = dict(os.environ, APP_PASSWORD=PASSWORD, WORK_DIR=WORK_DIR, APP_LOG=LOG_DIR
            LOCATION_MAPS="1" if LOCATION_MAPS else "0", I2V_MODEL=I2V_MODEL,
            ACE_PYTHON=ACE_ENV + "/bin/python" if os.path.exists(ACE_ENV + "/bin/python") else "",
            ACE_LOG=LOG_DIR + "/ace_step.log", ACE_CHECKPOINTS=ACE_CKPT,
+           BRAND_NAME=BRAND_NAME, BRAND_HANDLE=BRAND_HANDLE, BRAND_LOGO=BRAND_LOGO, BRAND_COLOR=BRAND_COLOR,
+           POSTIZ_API_URL=POSTIZ_API_URL,
            MEDIA_DEVICE="cuda:1" if n_gpu > 1 else "cuda:0",
            LLM_KEEP_ALIVE="10m" if n_gpu > 1 else "0",      # one GPU: free the LLM's memory before drawing
            UNLOAD_AFTER="0" if n_gpu > 1 else "1", TOKENIZERS_PARALLELISM="false")
-env.pop("GITHUB_TOKEN", None)
-gh = K.kaggle_secret("GITHUB_TOKEN")
-if gh:
-    env["GITHUB_TOKEN"] = gh
+for name in ("GITHUB_TOKEN", "POSTIZ_API_KEY"):          # optional secrets, passed only through the environment
+    env.pop(name, None)
+    val = K.kaggle_secret(name)
+    if val:
+        env[name] = val
+print("Postiz auto-posting:", "connected" if env.get("POSTIZ_API_KEY") else "off (add the POSTIZ_API_KEY secret to turn it on)")
 K.spawn("video-studio", [sys.executable, os.path.join(APP_DIR, "vs_server.py"), "--port", str(PORT)],
         LOG_DIR + "/video_studio.log", env=env, cwd=APP_DIR)
 if not K.wait_http("http://127.0.0.1:%d/health" % PORT, timeout=60, name="video-studio"):

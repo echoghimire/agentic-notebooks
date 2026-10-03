@@ -248,16 +248,13 @@ def clean(sb, src, length, lang, n_photos=0, keep_stats=False, fit=True):
 
 
 def _fit(text, n, lang):
-    """Whole sentences up to n words; a single long sentence is cut and closed."""
+    """Whole sentences up to n words (at least the first sentence, whole)."""
     out = []
     for snt in re.split(r"(?<=[.!?।॥])\s+", text.strip()):
         if out and len(" ".join(out + [snt]).split()) > n:
             break
         out.append(snt)
-    w = " ".join(out).split()
-    if len(w) <= n:
-        return " ".join(w)
-    return " ".join(w[:n]).rstrip(",;:—-") + ("।" if lang in DEVANAGARI else ".")
+    return " ".join(out)                               # never cut a sentence: a half sentence reads badly
 
 
 def fit_words(scenes, budget, lang):
@@ -269,6 +266,9 @@ def fit_words(scenes, budget, lang):
         n = len((sc.get("narration") or "").split())
         if n:
             sc["narration"] = _fit(sc["narration"], max(5, int(n * budget / total)), lang)
+    count = lambda: sum(len((sc.get("narration") or "").split()) for sc in scenes)
+    if count() > budget * 1.2 and len(scenes) > 1 and scenes[-1].get("layout") == "outro":
+        scenes[-1]["narration"] = ""                   # still long with whole sentences: the end card stays silent
 
 
 def sentences(text):

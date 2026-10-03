@@ -58,8 +58,52 @@ AUTO = {"en": ["af_heart", "en_aria"], "ne": ["ne_amrita", "ne_svara_f", "ne_hem
         "hi": ["hi_divya", "hi_svara_f", "hi_swara"], "es": ["ef_dora"], "fr": ["ff_siwis"],
         "it": ["if_sara"], "pt": ["pf_dora"]}
 PARLER_LANGS = {"as", "bn", "brx", "doi", "gu", "kn", "kok", "mai", "ml", "mni", "mr", "or", "sa", "sat", "sd", "ta", "te", "ur"}
-STYLE = {"tragic": "in a calm, gentle and serious tone", "serious": "in a calm, serious and measured tone",
+STYLE = {"tragic": "in a calm, gentle and serious tone, slowly", "serious": "in a calm, serious and measured tone",
          "upbeat": "in a bright, friendly and energetic tone", "inspiring": "in a warm, confident tone"}
+
+
+NE_0_99 = ("शून्य एक दुई तीन चार पाँच छ सात आठ नौ दस एघार बाह्र तेह्र चौध पन्ध्र सोह्र सत्र अठार उन्नाइस बीस एक्काइस बाइस "
+           "तेइस चौबीस पच्चीस छब्बीस सत्ताइस अट्ठाइस उनन्तीस तीस एकतीस बत्तीस तेत्तीस चौंतीस पैंतीस छत्तीस सैंतीस अठतीस "
+           "उनन्चालीस चालीस एकचालीस बयालीस त्रिचालीस चवालीस पैंतालीस छयालीस सतचालीस अठचालीस उनन्चास पचास एकाउन्न बाउन्न "
+           "त्रिपन्न चउन्न पचपन्न छपन्न सन्ताउन्न अन्ठाउन्न उनन्साठी साठी एकसट्ठी बयसट्ठी त्रिसट्ठी चौसट्ठी पैंसट्ठी छयसट्ठी "
+           "सतसट्ठी अठसट्ठी उनन्सत्तरी सत्तरी एकहत्तर बहत्तर त्रिहत्तर चौहत्तर पचहत्तर छयहत्तर सतहत्तर अठहत्तर उनासी असी "
+           "एकासी बयासी त्रियासी चौरासी पचासी छयासी सतासी अठासी उनान्नब्बे नब्बे एकानब्बे बयानब्बे त्रियानब्बे चौरानब्बे "
+           "पन्चानब्बे छयानब्बे सन्तानब्बे अन्ठानब्बे उनान्सय").split()
+DEVA_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
+
+
+def ne_number(n):
+    """Integer -> Nepali words, in the Nepali system (सय, हजार, लाख, करोड): 2082 -> दुई हजार बयासी."""
+    if n < 100:
+        return NE_0_99[n]
+    out = []
+    for size, name in ((10 ** 7, "करोड"), (10 ** 5, "लाख"), (1000, "हजार"), (100, "सय")):
+        if n >= size:
+            q, n = divmod(n, size)
+            out.append((ne_number(q) if q >= 100 else NE_0_99[q]) + " " + name)
+    if n:
+        out.append(NE_0_99[n])
+    return " ".join(out)
+
+
+def speakable(text, lang):
+    """Text as it should be read aloud: Nepali numbers, percentages and decimals written out as words, so the
+    voice reads them instead of guessing (५ जना -> पाँच जना, ३.५% -> तीन दशमलव पाँच प्रतिशत)."""
+    if lang != "ne":
+        return text
+    t = text.translate(DEVA_DIGITS)
+    t = re.sub(r"(?<=\d),(?=\d)", "", t)                    # 1,25,000 -> 125000
+
+    def num(m):
+        whole, frac, pct = m.group(1), m.group(2), m.group(3)
+        if len(whole) > 12:
+            return m.group(0)
+        w = ne_number(int(whole))
+        if frac:
+            w += " दशमलव " + " ".join(NE_0_99[int(c)] for c in frac)
+        return w + (" प्रतिशत" if pct else "")
+    t = re.sub(r"(\d+)(?:\.(\d+))?(?:\s*(%))?", num, t)
+    return re.sub(r"\s+", " ", t.replace("&", " र ")).strip()
 
 
 def parler_ok():
@@ -250,6 +294,7 @@ def _edge(text, speaker, path, tone):
 
 def speak(text, voice, path, media, tone="neutral", device="cuda:0", log=None):
     """Writes narration to path and returns its duration in seconds."""
+    text = speakable(text, voice.split(":", 1)[1] if voice.startswith("indic:") else VOICES.get(voice, {}).get("lang", ""))
     if voice.startswith("indic:"):
         return _parler(text, None, tone, path, device, log, voice.split(":", 1)[1])
     v = VOICES[voice]

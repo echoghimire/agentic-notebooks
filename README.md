@@ -21,7 +21,7 @@ By Er. Gunjan Ghimire.
 | [`notebooks/whisper-diarization-studio`](notebooks/whisper-diarization-studio) | **Whisper Diarization Studio**: transcripts with who-spoke-when (faster-whisper + pyannote), meeting summaries and action items (Ollama), SRT/VTT; MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/whisper-diarization-studio/whisper-diarization-studio.ipynb) |
 | [`notebooks/unsloth-finetuning-lab`](notebooks/unsloth-finetuning-lab) | **Unsloth Fine-tuning Lab**: dataset → 4-bit LoRA fine-tune → chat → GGUF / merged export → Hugging Face; MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/unsloth-finetuning-lab/unsloth-finetuning-lab.ipynb) |
 | [`notebooks/rag-ingest-pipeline`](notebooks/rag-ingest-pipeline) | **RAG Ingest Pipeline**: PDFs, DOCX, web pages and whole datasets → chunks → bge-m3 embeddings → search with reranking → export for any vector DB; MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/rag-ingest-pipeline/rag-ingest-pipeline.ipynb) |
-| [`notebooks/video-studio`](notebooks/video-studio) | **Video Studio**: any link (news in Nepali or English, GitHub, YouTube, PDF) → narrated video as 16:9 and 9:16 reel, using the link's own photos and language, with 2.5D photo motion, map fly-ins and a per-scene picture/clip picker (Gemma 3, Indic Parler-TTS / Svara / Kokoro, MusicGen or ACE-Step, optional AI video clips); MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/video-studio/video-studio.ipynb) |
+| [`notebooks/video-studio`](notebooks/video-studio) | **Video Studio**: any link (news in Nepali or English, GitHub, YouTube, PDF) → narrated video as 16:9 and 9:16 reel, using the link's own photos and language, with 2.5D photo motion, map fly-ins and a per-scene picture/clip picker, your brand on every video and posting through Postiz (Gemma 3, Indic Parler-TTS / Svara / Kokoro, MusicGen or ACE-Step, optional AI video clips); MCP server | GPU T4 x2 | [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/echoghimire/agentic-notebooks/blob/main/notebooks/video-studio/video-studio.ipynb) |
 
 ## Quick start
 
@@ -45,7 +45,7 @@ No tokens or domains are stored in the notebooks. Everything comes from Kaggle s
 | whisper-diarization-studio | `WHISPER_TUNNEL_TOKEN` | `WHISPER_UI_PASSWORD` (UI and MCP login), `HF_TOKEN` (speaker labels; accept the pyannote terms) |
 | unsloth-finetuning-lab | `UNSLOTH_TUNNEL_TOKEN` | `UNSLOTH_UI_PASSWORD` (UI and MCP login), `HF_TOKEN` (gated base models, Hub pushes) |
 | rag-ingest-pipeline | `RAG_TUNNEL_TOKEN` | `RAG_UI_PASSWORD` (UI and MCP login) |
-| video-studio | `VIDEO_TUNNEL_TOKEN` | `VIDEO_UI_PASSWORD` (UI and MCP login), `GITHUB_TOKEN` (more GitHub API lookups) |
+| video-studio | `VIDEO_TUNNEL_TOKEN` | `VIDEO_UI_PASSWORD` (UI and MCP login), `GITHUB_TOKEN` (more GitHub API lookups), `POSTIZ_API_KEY` (post videos through Postiz) |
 
 ## Limits to know
 
