@@ -55,11 +55,16 @@ def piper_ok(model="ne_NP-google-medium"):
         os.path.exists(os.path.join(PIPER_DIR, model + ".onnx"))
 
 
+def kokoro_ok():
+    import importlib.util
+    return importlib.util.find_spec("kokoro") is not None
+
+
 def available(voice):
     v = VOICES.get(voice)
     if not v:
         return False
-    return {"parler": parler_ok, "piper": lambda: piper_ok(v.get("model")), "kokoro": lambda: True}[v["engine"]]()
+    return {"parler": parler_ok, "piper": lambda: piper_ok(v.get("model")), "kokoro": kokoro_ok}[v["engine"]]()
 
 
 def pick(voice, lang):
