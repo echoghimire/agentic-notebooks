@@ -150,6 +150,14 @@ class Media:
             pass
 
 
+def tempo(src, dst, factor):
+    """Speeds speech up by factor without changing its pitch (ffmpeg atempo); returns the new duration."""
+    import subprocess
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src, "-filter:a", "atempo=%.3f" % factor, dst],
+                   check=True, capture_output=True, timeout=120)
+    return duration(dst)
+
+
 def mix(total, narrations, music_path, out_path, tone="neutral"):
     """narrations: [(start_seconds, wav_path)]. Music loops with crossfades and dips under the voice."""
     n = int(total * OUT_RATE)
@@ -244,28 +252,63 @@ def fetch_photos(images, out_dir, limit=8, referer=None, log=None):
     return kept
 
 
-def describe_photos(photos, ollama_url, model, keep_alive="10m", log=None):
-    """One short English description per photo from a vision model (Gemma 3, LLaVA...). Best effort."""
+SCREEN_PROMPT = """This picture was found on a web page about: {topic}
+
+Return ONLY a JSON object:
+{{"description": "one short factual English sentence: who or what is shown and where; no guessing names",
+  "kind": one of "news photo", "advertisement", "product", "stock graphic", "logo or text", "portrait", "other",
+  "relevance": 0 to 10, how well it fits the page's topic (10 = clearly shows this story)}}
+
+Advertisements and products include food, kitchens, appliances, phones, fashion, banks, offers and prices."""
+DROP_KINDS = {"advertisement", "product", "logo or text"}
+
+
+def describe_photos(photos, ollama_url, model, keep_alive="10m", log=None, topic="", keep=8):
+    """Asks a vision model (Gemma 3) to describe each photo and to spot ads and off-topic pictures, which are
+    dropped. Returns the photos to use; best effort (without a vision model every photo is kept)."""
     import base64
     import io
     import json as _json
+    import re as _re
     import urllib.request
     from PIL import Image
-    for p in photos:
+    kept = []
+    for i, p in enumerate(photos):
         try:
             im = Image.open(p["path"])
             im.thumbnail((640, 640))
             buf = io.BytesIO()
             im.save(buf, "JPEG", quality=85)
-            body = _json.dumps({"model": model, "stream": False, "keep_alive": keep_alive, "options": {"temperature": 0.2},
+            body = _json.dumps({"model": model, "stream": False, "keep_alive": keep_alive, "format": "json",
+                                "options": {"temperature": 0.1},
                                 "messages": [{"role": "user", "images": [base64.b64encode(buf.getvalue()).decode()],
-                                              "content": "Describe this photo in one short factual English sentence: who or "
-                                                         "what is shown and where. No guessing names."}]}).encode()
+                                              "content": SCREEN_PROMPT.format(topic=topic[:300] or "(unknown)")}]}).encode()
             req = urllib.request.Request(ollama_url.rstrip("/") + "/api/chat", data=body, headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=120) as r:
-                p["description"] = _json.loads(r.read())["message"]["content"].strip()[:240]
+                content = _json.loads(r.read())["message"]["content"]
+            m = _re.search(r"\{.*\}", content, _re.S)
+            try:
+                v = _json.loads(m.group(0)) if m else {}
+            except ValueError:
+                v = {}
+            if not isinstance(v, dict) or not v:
+                v = {"description": content}            # a plain-text answer: keep it as the description
         except Exception as e:
             if log:
-                log.info("photo description skipped: %s", e)
-            return photos                              # the model cannot see images: stop trying
-    return photos
+                log.info("photo check skipped: %s", e)
+            return (kept + photos[i:])[:keep]          # the model cannot see images: keep the rest unchecked
+        kind = str(v.get("kind") or "").lower().strip()
+        try:
+            rel = float(v.get("relevance", 5))
+        except (TypeError, ValueError):
+            rel = 5.0
+        p["description"] = str(v.get("description") or "").strip()[:240]
+        p["kind"], p["relevance"] = kind, rel
+        if kind in DROP_KINDS or rel < 3:
+            if log:
+                log.info("photo dropped (%s, relevance %s): %s", kind or "?", rel, str(p.get("url"))[:120])
+            continue
+        kept.append(p)
+        if len(kept) >= keep:
+            break
+    return sorted(kept, key=lambda p: p.get("kind") == "stock graphic")   # real photos lead (the headline uses the first)

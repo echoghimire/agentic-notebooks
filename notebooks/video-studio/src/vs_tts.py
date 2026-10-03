@@ -41,7 +41,7 @@ VOICES = {
 AUTO = {"en": ["af_heart"], "ne": ["ne_amrita", "ne_piper"], "hi": ["hi_divya"], "es": ["ef_dora"], "fr": ["ff_siwis"],
         "it": ["if_sara"], "pt": ["pf_dora"]}
 PARLER_LANGS = {"as", "bn", "brx", "doi", "gu", "kn", "kok", "mai", "ml", "mni", "mr", "or", "sa", "sat", "sd", "ta", "te", "ur"}
-STYLE = {"tragic": "in a calm, gentle and serious tone, slowly", "serious": "in a calm, serious and measured tone",
+STYLE = {"tragic": "in a calm, gentle and serious tone", "serious": "in a calm, serious and measured tone",
          "upbeat": "in a bright, friendly and energetic tone", "inspiring": "in a warm, confident tone"}
 
 

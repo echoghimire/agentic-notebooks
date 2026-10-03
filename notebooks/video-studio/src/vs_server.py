@@ -190,12 +190,14 @@ def scene_duration(sc, narr_dur, length):
         base = max(base, 2.6 + len(sc.get("code") or "") / 28.0)
     if sc["layout"] == "bullets":
         base = max(base, 1.4 + 0.45 * len(sc.get("bullets") or []))
-    return round(max(base, narr_dur + 1.0), 2)
+    return round(max(base, narr_dur + (0.7 if length <= 15 else 1.0)), 2)
 
 
 def auto_style(sb, src):
-    if sb.get("category") == "news" or src["kind"] == "article" and sb.get("tone") in ("tragic", "serious"):
+    if sb.get("category") == "news" or sb.get("tone") in ("tragic", "serious"):
         return "broadcast"
+    if src["kind"] == "article" and sb.get("category") not in ("tech", "education", "promo", "story"):
+        return "broadcast"                              # an article the model did not label: treat it as news
     return {"github": "midnight", "pdf": "paper"}.get(src["kind"]) or {
         "tech": "midnight", "education": "paper", "story": "documentary", "promo": "neon"}.get(sb.get("category"), "documentary")
 
@@ -234,12 +236,14 @@ def run_job(job):
         step(job, "reading the link", 0.02)
         src = SRC.fetch_source(job["input"])
         step(job, "collecting photos", 0.05)
-        photos = M.fetch_photos(src.get("images") or [], os.path.join(d, "photos"), 8, referer=src.get("url"), log=log)
+        photos = M.fetch_photos(src.get("images") or [], os.path.join(d, "photos"), 14, referer=src.get("url"), log=log)
         for im in src.get("images") or []:
             im.pop("bytes", None)
         if photos and DESCRIBE_PHOTOS and LLM_MODEL:
             step(job, "looking at the photos", 0.07)
-            photos = M.describe_photos(photos, OLLAMA_URL, LLM_MODEL, LLM_KEEP_ALIVE, log)
+            photos = M.describe_photos(photos, OLLAMA_URL, LLM_MODEL, LLM_KEEP_ALIVE, log,
+                                       topic=src["title"] + ". " + (src.get("description") or ""), keep=8)
+        photos = photos[:8]
         K.write_json(os.path.join(d, "source.json"), src)
         K.write_json(os.path.join(d, "photos.json"), photos)
         save(job, title=src["title"][:100])
@@ -314,6 +318,16 @@ def run_job(job):
                     narr = {}
                     break
             narr[i] = (path, M.duration(path))
+    spoken, room = sum(x[1] for x in narr.values()), 0.8 * o["length"]
+    if narr and spoken > room * 1.04:                   # too long for the chosen length: speak a little faster
+        f = min(1.25, spoken / room)
+        log.info("%s: narration %.1fs for %ss; speeding up %.2fx", job["id"], spoken, o["length"], f)
+        try:
+            for i, (path, _) in list(narr.items()):
+                fast = path[:-4] + "_x%.2f.wav" % f
+                narr[i] = (fast, M.duration(fast) if os.path.exists(fast) else M.tempo(path, fast, f))
+        except Exception as e:
+            log.warning("speed-up failed: %s", e)
     save(job, voice=voice)
     # 5. timing
     wps = ST.WPS.get(lang, 2.3)

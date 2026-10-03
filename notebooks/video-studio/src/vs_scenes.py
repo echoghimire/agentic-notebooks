@@ -67,7 +67,11 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg1);
 .ph .fill{position:absolute;inset:-6%;background-size:cover;background-position:center;filter:blur(5vmin) brightness(.55) saturate(1.2)}
 .ph .img{position:absolute;inset:0;background-repeat:no-repeat;background-position:center;filter:contrast(1.06) saturate(1.06);
  animation:$kb var(--dur) cubic-bezier(.3,.1,.3,1) both}
-.ph .img.cover{background-size:cover}.ph .img.contain{background-size:contain;inset:3%}
+.ph .img{background-size:cover}
+.ph .img.band{box-shadow:0 2vmin 7vmin rgba(0,0,0,.55);animation-name:kbband!important}
+.reel .ph .img.band{inset:auto 0 auto 0;top:13vmin}
+.landscape .ph .img.band{inset:0 0 0 auto}
+@keyframes kbband{from{transform:scale(1)}to{transform:scale(1.05)}}
 @keyframes kbin{from{transform:scale(1.04)}to{transform:scale(1.16)}}
 @keyframes kbout{from{transform:scale(1.16)}to{transform:scale(1.04)}}
 @keyframes kbleft{from{transform:scale(1.14) translateX(2.5%)}to{transform:scale(1.14) translateX(-2.5%)}}
@@ -77,6 +81,31 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg1);
 .light .ph .shade{background:linear-gradient(180deg,rgba(255,255,255,0) 40%,rgba(255,255,255,.9))}
 .dim .ph .shade{background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,.75))}
 .light.dim .ph .shade{background:linear-gradient(180deg,rgba(255,255,255,.65),rgba(255,255,255,.9))}
+/* text over a photo, in every style: a dark scrim under the text, white type with a soft shadow, and a
+   frosted plate behind centred headlines. Light styles switch to this too: dark type on photos is unreadable. */
+html.onphoto{--fg:#fff;--muted:rgba(255,255,255,.88)}
+html.onphoto .ph .shade{background:linear-gradient(180deg,rgba(0,0,0,.35) 0%,rgba(0,0,0,0) 22%,rgba(0,0,0,.25) 48%,rgba(0,0,0,.82) 78%,rgba(0,0,0,.92))}
+html.onphoto.dim .ph .shade{background:linear-gradient(180deg,rgba(0,0,0,.5),rgba(0,0,0,.38) 45%,rgba(0,0,0,.8))}
+html.onphoto h1,html.onphoto h2,html.onphoto .tag,html.onphoto .quote,html.onphoto li{text-shadow:0 .2vmin .4vmin rgba(0,0,0,.6),0 .6vmin 3vmin rgba(0,0,0,.5)}
+html.onphoto .kicker{color:#fff;background:var(--accent);display:inline-block;align-self:flex-start;padding:.7vmin 1.6vmin;border-radius:.5vmin;text-shadow:none}
+html.onphoto .center .kicker{align-self:center}
+html.onphoto .chip{background:rgba(0,0,0,.5);color:#fff}
+html.onphoto .url{color:#fff;text-shadow:0 .2vmin 1vmin rgba(0,0,0,.7)}
+.plate{background:rgba(10,12,18,.55);backdrop-filter:blur(1.8vmin) saturate(1.15);-webkit-backdrop-filter:blur(1.8vmin);
+ border:.15vmin solid rgba(255,255,255,.12);border-radius:2.6vmin;padding:4.5vmin 5.5vmin;max-width:100%;
+ box-shadow:0 3vmin 8vmin rgba(0,0,0,.35)}
+.center .plate{display:flex;flex-direction:column;align-items:center}
+/* band photos: the text goes beside (landscape) or below (reel) the picture, on the darkened blur */
+html.onphoto.pc.reel .ph .shade{background:linear-gradient(180deg,rgba(0,0,0,.5),rgba(0,0,0,0) 13vmin,rgba(0,0,0,0) calc(var(--below) - 8vmin),rgba(0,0,0,.72) var(--below),rgba(0,0,0,.85))}
+html.onphoto.pc.landscape .ph .shade{background:linear-gradient(90deg,rgba(0,0,0,.82),rgba(0,0,0,.62) 45%,rgba(0,0,0,.08) 62%)}
+.pc.reel .content.lower,.pc.reel .content.center,.pc.reel .content.qt{justify-content:center;padding-top:var(--below,82vmin);padding-bottom:44vmin}
+.pc.reel h1{font-size:8.2vmin}.pc.reel h2,.pc.reel .lower h2{font-size:6.8vmin;margin-bottom:2vmin}.pc.reel .tag{font-size:3.7vmin;margin-top:2.4vmin}
+.pc.reel .plate{padding:3.6vmin 4.4vmin}
+.pc.reel .l3{bottom:auto;top:var(--below,82vmin)}
+.pc.landscape .content{padding-right:var(--beside,92vmin);padding-bottom:12vmin}
+.pc.landscape .center{align-items:flex-start;text-align:left}.pc.landscape .center .plate{align-items:flex-start}
+.pc.landscape .center .tag{margin-left:0}.pc.landscape .lower h2{max-width:100%}
+.pc.landscape .l3{right:var(--beside,92vmin)}
 .credit{position:absolute;right:3vmin;bottom:3vmin;z-index:25;font:500 1.7vmin var(--font);color:rgba(255,255,255,.75);
  text-shadow:0 .2vmin .6vmin rgba(0,0,0,.6)}
 .reel .credit,.broadcast .credit{bottom:auto;top:9vmin}
@@ -241,15 +270,23 @@ def _url(path):
     return "file://" + os.path.abspath(path)
 
 
-def photo_layer(ph, idx):
-    """ph: {"path", "fit": "cover"|"contain", "credit"}; idx picks the camera move."""
+def photo_layer(ph, idx, fmt="landscape"):
+    """ph: {"path", "fit": "cover"|"contain", "w", "h", "credit"}; idx picks the camera move. A photo whose shape does
+    not suit the frame becomes a band: across the top of a reel (text goes below it) or down the right of a landscape
+    frame (text goes left of it), so text never sits on the busy part of the picture."""
     if not ph or not ph.get("path"):
         return ""
     u = esc(_url(ph["path"]))
+    cls, size = "img", ""
+    if ph.get("fit") == "contain":
+        pa = ph.get("w", 1) / float(ph.get("h", 1) or 1)
+        cls = "img band"
+        size = ("height:%.1fvmin;" % max(46, min(70, 100 / pa)) if fmt == "reel"
+                else "width:%.1fvmin;" % max(56, min(100, 100 * pa)))
     return ('<div class="ph"><div class="fill" style="background-image:url(\'%s\')"></div>'
-            '<div class="img %s" data-bg="%s" style="background-image:url(\'%s\');animation-name:%s"></div>'
+            '<div class="%s" data-bg="%s" style="%sbackground-image:url(\'%s\');animation-name:%s"></div>'
             '<div class="vig"></div><div class="shade"></div></div>') % (
-        u, "contain" if ph.get("fit") == "contain" else "cover", u, u, ("kbin", "kbleft", "kbout", "kbright")[idx % 4])
+        u, cls, u, size, u, ("kbin", "kbleft", "kbout", "kbright")[idx % 4])
 
 
 def words(text, start=0.25, step=0.07, limit=1.6):
@@ -277,13 +314,14 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
     kicker = scene.get("kicker") or ""
     body = ""
     if lay in ("title", "headline"):
-        bg += photo_layer(photo, idx)
+        bg += photo_layer(photo, idx, fmt)
         if broadcast:
             body = ('<div class="l3"><div class="k slide" style="animation-delay:.2s">%s</div><div class="h slide" style="animation-delay:.35s">%s</div>%s</div>') % (
                 esc(kicker or L["latest"]), words(h, .5), '<div class="s up" style="animation-delay:1.1s">%s</div>' % esc(story.get("tagline")) if story.get("tagline") else "")
         else:
             label = {"github": "GitHub · " + str(src.get("title") or ""), "youtube": "YouTube", "pdf": "PDF"}.get(src.get("kind"), site)
-            body = '<div class="content center">%s<h1>%s</h1>%s</div>' % (
+            body = ('<div class="content center"><div class="plate up">%s<h1>%s</h1>%s</div></div>' if photo else
+                    '<div class="content center">%s<h1>%s</h1>%s</div>') % (
                 '<div class="chip up" style="animation-delay:.15s">%s</div>' % esc(kicker or label) if (kicker or label) else "", words(h, .3),
                 '<p class="tag up" style="animation-delay:.9s">%s</p>' % esc(story.get("tagline")) if story.get("tagline") else "")
     elif lay == "bullets":
@@ -291,10 +329,10 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
                       for i, b in enumerate(scene.get("bullets") or []))
         text = '<div class="text"><div class="kicker up" style="animation-delay:.1s">%s</div><h2>%s</h2><ul>%s</ul></div>' % (
             esc(kicker) or "%02d" % idx, words(h, .25), lis)
-        pic = '<div class="pic pop" style="animation-delay:.35s">%s</div>' % photo_layer(photo, idx) if photo else ""
+        pic = '<div class="pic pop" style="animation-delay:.35s">%s</div>' % photo_layer(dict(photo, fit="cover"), idx) if photo else ""
         body = '<div class="content %s">%s%s</div>' % ("split" if photo else "", text, pic)
     elif lay == "photo":
-        bg += photo_layer(photo, idx)
+        bg += photo_layer(photo, idx, fmt)
         sub = (scene.get("bullets") or [""])[0]
         if broadcast:
             body = '<div class="l3"><div class="k slide" style="animation-delay:.2s">%s</div><div class="h slide" style="animation-delay:.3s">%s</div>%s</div>' % (
@@ -314,16 +352,17 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
         body = ('<div class="content"><h2>%s</h2><div class="win pop" style="animation-delay:.4s"><div class="bar"><i></i><i></i><i></i></div>'
                 '<pre data-type="%s"></pre></div></div>') % (words(h, .15), esc(scene.get("code")))
     elif lay == "quote":
-        bg += photo_layer(photo, idx)
-        body = ('<div class="content"><div class="qmark up">&ldquo;</div><div class="quote up" style="animation-delay:.3s">%s</div>'
+        bg += photo_layer(photo, idx, fmt)
+        body = ('<div class="content qt"><div class="qmark up">&ldquo;</div><div class="quote up" style="animation-delay:.3s">%s</div>'
                 '<div class="src up" style="animation-delay:.9s">%s</div></div>') % (esc(scene.get("quote")), esc(scene.get("heading") or src.get("title")))
     else:  # outro
-        bg += photo_layer(photo, idx)
+        bg += photo_layer(photo, idx, fmt)
         url = re.sub(r"^https?://(www\.)?", "", str(src.get("url") or "")).rstrip("/")
         if src.get("kind") != "github":
             url = url.split("/")[0]                       # articles: just the site
         tag = (scene.get("bullets") or [""])[0] if scene.get("bullets") else (story.get("tagline") or "")
-        body = '<div class="content center"><h1>%s</h1>%s%s</div>' % (
+        body = ('<div class="content center"><div class="plate up"><h1>%s</h1>%s%s</div></div>' if photo else
+                '<div class="content center"><h1>%s</h1>%s%s</div>') % (
             words(h or L["thanks"], .2), '<p class="tag up" style="animation-delay:.8s">%s</p>' % esc(tag) if tag else "",
             '<div class="url up" style="animation-delay:1.1s">%s: %s</div>' % (esc(L["source"]), esc(url[:70])) if url else "")
     furniture = ""
@@ -337,16 +376,23 @@ def scene_html(scene, idx, n, story, style, fmt, dur, photo, captions, p0, p1):
         texture = '<div class="leak"></div><div class="grain"></div>'
     elif style in ("broadcast", "midnight", "neon") and photo:
         texture = '<div class="grain" style="opacity:.07"></div>'
-    cls = " ".join(filter(None, [fmt, style, "light" if style in LIGHT else "", "deva" if lang in DEVANAGARI_LANGS else "",
+    onphoto = bool(photo) and lay in ("title", "headline", "photo", "quote", "outro")
+    pc = onphoto and photo.get("fit") == "contain"
+    var = ""
+    if pc:                                              # where the text starts, beside or below the band photo
+        pa = photo.get("w", 1) / float(photo.get("h", 1) or 1)
+        var = ("--below:%.1fvmin" % (13 + max(46, min(70, 100 / pa)) + 6) if fmt == "reel"
+               else "--beside:%.1fvmin" % (max(56, min(100, 100 * pa)) + 8))
+    cls = " ".join(filter(None, [fmt, style, "onphoto" if onphoto else "", "pc" if pc else "", "light" if style in LIGHT else "", "deva" if lang in DEVANAGARI_LANGS else "",
                                  "dim" if lay in ("title", "outro", "quote") and not broadcast else "",
                                  "bars" if style == "documentary" else "", "first" if idx == 0 else "", "last" if idx == n - 1 else ""]))
     st = dict(STYLES[style], dur="%.3f" % dur, p0="%.3f" % p0, p1="%.3f" % p1, grain=GRAIN, kb="kbin")
     cps = max(18.0, len(scene.get("code") or "") / max(1.0, dur - 2.2))
     transition = '<div class="wipe"></div>' if broadcast else '<div class="veil"></div>'
     num = '<div class="num">%d / %d</div>' % (idx + 1, n) if not broadcast else ""
-    return ('<!doctype html><html class="%s" lang="%s"><head><meta charset="utf-8"><style>%s</style></head><body>'
+    return ('<!doctype html><html class="%s" style="%s" lang="%s"><head><meta charset="utf-8"><style>%s</style></head><body>'
             '<div class="stage">%s</div>%s%s%s%s%s%s<div class="progress"></div>%s'
             '<script>%s</script></body></html>') % (
-        cls, esc(lang), CSS.substitute(st), bg, body, furniture, credit, texture, num,
+        cls, var, esc(lang), CSS.substitute(st), bg, body, furniture, credit, texture, num,
         '<div class="cap"></div>' if captions else "", transition,
         JS.replace("__CAPS__", json.dumps(captions or [], ensure_ascii=False)).replace("__CPS__", "%.2f" % cps))
