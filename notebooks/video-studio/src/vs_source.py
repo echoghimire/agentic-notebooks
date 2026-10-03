@@ -28,7 +28,13 @@ TIMEOUT = 30
 NE_MARKERS = ("छ", "छन्", "गरेको", "भएको", "हुन्छ", "गर्न", "पनि", "थियो", "भने", "रहेको", "गरी", "लागि", "जना", "सम्म", "बाट")
 HI_MARKERS = ("है", "हैं", "में", "का", "की", "के", "और", "था", "थी", "गया", "किया", "रहा", "लिए", "साथ", "बाद")
 BAD_IMG = re.compile(r"logo|icon|avatar|sprite|placeholder|blank|pixel|spacer|tracking|gravatar|emoji|badge|banner|"
-                     r"/ads?[/_-]|advert|sponsor|facebook\.com|twitter\.com|\.svg(\?|$)|\.gif(\?|$)|data:image", re.I)
+                     r"/ads?[/_-]|advert|sponsor|facebook\.com|twitter\.com|\.svg(\?|$)|\.gif(\?|$)|data:image|doubleclick|"
+                     r"googlesyndication|adservice|adnxs|taboola|outbrain|mgid\.com|/banners?/|/promo", re.I)
+# Blocks that hold ads, sponsored posts, "related news", share buttons or sidebars: their pictures are not the story's
+AD_HINT = re.compile(r"(^|[\s_-])(ads?|adv|advert\w*|sponsor\w*|promo\w*|banner\w*|dfp|gpt|adsense|outbrain|taboola|mgid|"
+                     r"related|recommend\w*|trending|popular|most|also|more|sidebar|widget|newsletter|share|social|"
+                     r"subscribe|footer)($|[\s_-])", re.I)
+VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 
 
 def _get(url, headers=None, limit=25 << 20):
@@ -213,7 +219,8 @@ class _Page(html.parser.HTMLParser):
         self.base = base
         self.out, self.skip, self.meta, self.title, self.in_title, self.lang = [], 0, {}, "", False, ""
         self.ld, self.in_ld, self.imgs, self.depth_article, self.in_cap, self.cap = [], False, [], 0, False, ""
-        self.stack = []
+        self.stack, self.depth_ad, self.links = [], 0, []
+        self.host = _site(base)
 
     def handle_starttag(self, tag, attrs):
         a = {k: (v or "") for k, v in attrs}
@@ -229,11 +236,16 @@ class _Page(html.parser.HTMLParser):
             self.in_ld = True
             self.ld.append("")
             return
-        if tag in ("article", "main", "figure") or self.ARTICLE_HINT.search(a.get("class", "") + " " + a.get("id", "")):
-            self.depth_article += 1
-            self.stack.append(tag)
-        else:
-            self.stack.append(None)
+        names = a.get("class", "") + " " + a.get("id", "")
+        art = tag in ("article", "main", "figure") or bool(self.ARTICLE_HINT.search(names))
+        ad = tag in ("aside", "nav", "footer", "ins") or bool(AD_HINT.search(names))
+        if tag not in VOID:                             # void tags never close: keep them off the stack
+            self.depth_article += art
+            self.depth_ad += ad
+            self.stack.append((tag, art, ad))
+        if tag == "a":
+            href = urllib.parse.urljoin(self.base, a.get("href", ""))
+            self.links.append(bool(re.match(r"^https?://", href)) and _site(href) != self.host)
         if tag == "figcaption":
             self.in_cap, self.cap = True, ""
         if tag in ("img", "source"):
@@ -249,7 +261,8 @@ class _Page(html.parser.HTMLParser):
                 w = int(re.sub(r"\D", "", a.get("width", "")) or 0)
                 self.imgs.append({"url": urllib.parse.urljoin(self.base, src), "alt": a.get("alt", "")[:200], "caption": "",
                                   "score": (2 if self.depth_article else 0) + (1 if len(a.get("alt", "")) > 15 else 0)
-                                  - (3 if 0 < w < 300 else 0)})
+                                  - (3 if 0 < w < 300 else 0) - (10 if self.depth_ad else 0)
+                                  - (6 if any(self.links) else 0)})   # a picture that links to another site is an ad
         if tag in self.SKIP:
             self.skip += 1
         elif tag in self.BLOCK:
@@ -267,9 +280,15 @@ class _Page(html.parser.HTMLParser):
             self.in_cap = False
             if self.imgs and not self.imgs[-1]["caption"]:
                 self.imgs[-1]["caption"] = " ".join(self.cap.split())[:240]
-        if self.stack:
-            if self.stack.pop():
-                self.depth_article = max(0, self.depth_article - 1)
+        if tag == "a" and self.links:
+            self.links.pop()
+        if tag not in VOID and any(t == tag for t, _, _ in self.stack):
+            while self.stack:                           # also closes unclosed <p>, <li>... inside it
+                t, art, ad = self.stack.pop()
+                self.depth_article = max(0, self.depth_article - art)
+                self.depth_ad = max(0, self.depth_ad - ad)
+                if t == tag:
+                    break
         if tag in self.SKIP:
             self.skip = max(0, self.skip - 1)
         elif tag in self.BLOCK:
@@ -285,6 +304,14 @@ class _Page(html.parser.HTMLParser):
                 self.cap += data
             if not self.skip:
                 self.out.append(data)
+
+
+def _site(url):
+    """example.com for www.example.com and img.example.com (two labels; three for .com.np-style domains)."""
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    parts = host.split(".")
+    n = 3 if len(parts) > 2 and parts[-2] in ("com", "co", "org", "gov", "edu", "net", "ac") and len(parts[-1]) == 2 else 2
+    return ".".join(parts[-n:])
 
 
 def _ld_items(blobs):

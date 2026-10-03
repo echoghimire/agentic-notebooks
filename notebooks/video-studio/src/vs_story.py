@@ -17,7 +17,7 @@ import urllib.request
 LAYOUTS = ("headline", "photo", "bullets", "stats", "code", "quote", "outro")
 ALIASES = {"title": "headline", "image": "photo", "intro": "headline", "end": "outro"}
 LENGTHS = {15: (2, 3), 30: (4, 5), 60: (6, 8), 90: (8, 11)}
-WPS = {"en": 2.5, "ne": 2.0, "hi": 2.2}            # spoken words per second
+WPS = {"en": 2.4, "ne": 1.55, "hi": 1.8}           # spoken words per second (Nepali TTS speaks long words slowly)
 LANGS = {"en": ("English", "English", ""), "ne": ("Nepali", "नेपाली", ", in Devanagari script"),
          "hi": ("Hindi", "हिन्दी", ", in Devanagari script"), "es": ("Spanish", "español", ""),
          "fr": ("French", "français", ""), "it": ("Italian", "italiano", ""), "pt": ("Portuguese", "português", ""),
@@ -190,7 +190,7 @@ def _scene(sc, n_photos):
     return out
 
 
-def clean(sb, src, length, lang, n_photos=0, keep_stats=False):
+def clean(sb, src, length, lang, n_photos=0, keep_stats=False, fit=True):
     """Validates and repairs a storyboard; raises ValueError if nothing usable is left."""
     if not isinstance(sb, dict) or not isinstance(sb.get("scenes"), list):
         raise ValueError("storyboard must be an object with a scenes list")
@@ -218,7 +218,7 @@ def clean(sb, src, length, lang, n_photos=0, keep_stats=False):
     stats = stats_for(src)
     if stats and not any(s["layout"] == "stats" for s in scenes) and length > 15:
         scenes.insert(min(2, len(scenes) - 1), dict(blank, layout="stats", heading="", narration=stats_narration(src), stats=stats))
-    while len(scenes) > n_max + 1:                     # keep headline/outro, drop from the middle
+    while len(scenes) > n_max:                         # keep headline/outro, drop from the middle
         scenes.pop(-2)
     cat = str(sb.get("category") or "").lower()
     tone = str(sb.get("tone") or "").lower()
@@ -238,7 +238,33 @@ def clean(sb, src, length, lang, n_photos=0, keep_stats=False):
     h["narration"] = h["narration"] or out["tagline"] or title
     o["heading"] = o["heading"] or ""
     o["narration"] = o["narration"] or ""
+    if fit:                                            # user-edited scripts are kept as written
+        fit_words(scenes, int(length * WPS.get(lang, 2.3) * 0.85), lang)
     return out
+
+
+def _fit(text, n, lang):
+    """Whole sentences up to n words; a single long sentence is cut and closed."""
+    out = []
+    for snt in re.split(r"(?<=[.!?।॥])\s+", text.strip()):
+        if out and len(" ".join(out + [snt]).split()) > n:
+            break
+        out.append(snt)
+    w = " ".join(out).split()
+    if len(w) <= n:
+        return " ".join(w)
+    return " ".join(w[:n]).rstrip(",;:—-") + ("।" if lang in DEVANAGARI else ".")
+
+
+def fit_words(scenes, budget, lang):
+    """Shortens narration so the whole video fits its length (the model often writes too much)."""
+    total = sum(len((sc.get("narration") or "").split()) for sc in scenes)
+    if total <= budget:
+        return
+    for sc in scenes:
+        n = len((sc.get("narration") or "").split())
+        if n:
+            sc["narration"] = _fit(sc["narration"], max(5, int(n * budget / total)), lang)
 
 
 def sentences(text):
@@ -286,7 +312,7 @@ def write_storyboard(src, length, lang, ollama_url, model, keep_alive="10m", pho
 
 def validate_user_storyboard(sb, src, length, lang, n_photos):
     """For storyboards edited in the page or sent by an agent: same repairs, keeping their stats scenes."""
-    out = clean(sb, dict(src, kind="prompt"), length, sb.get("language") or lang, n_photos, keep_stats=True)
+    out = clean(sb, dict(src, kind="prompt"), length, sb.get("language") or lang, n_photos, keep_stats=True, fit=False)
     out["source"] = sb.get("source") or out["source"]
     for k in ("category", "tone", "music_prompt"):
         if sb.get(k):

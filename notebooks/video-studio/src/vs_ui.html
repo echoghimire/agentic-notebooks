@@ -5,13 +5,14 @@
 <link rel="stylesheet" href="/static/kit.css">
 <style>
 body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Noto Sans Devanagari",sans-serif}
-.bar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
-.ham{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:0}
+.topbar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:14px;min-height:64px;padding:10px 20px;
+ background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.ham{width:44px;height:44px;flex:none;border-radius:10px;border:1px solid var(--line);background:var(--panel2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:0}
 .ham i{display:block;width:18px;height:2px;background:var(--text);border-radius:2px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px}
-.brand .dot{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#ff5f8a);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}
-.bar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
-.pill{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.brand{display:flex;align-items:center;gap:12px;font-weight:800;font-size:21px;letter-spacing:-.01em;white-space:nowrap}
+.brand .dot{width:34px;height:34px;border-radius:10px;flex:none;background:linear-gradient(135deg,var(--accent),#ff5f8a);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}
+.topbar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pill{font-size:13px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
 /* drawer */
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:40;opacity:0;pointer-events:none;transition:opacity .2s}
 .drawer{position:fixed;top:0;left:0;bottom:0;width:min(340px,88vw);z-index:41;background:var(--panel);border-right:1px solid var(--line);
@@ -46,10 +47,22 @@ details.more{margin-top:12px}details.more summary{cursor:pointer;color:var(--mut
 .sty i{width:18px;height:18px;border-radius:5px;display:inline-block}
 .examples{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.examples button{font-size:12px;padding:4px 10px;border-radius:999px}
 /* job */
-.steps{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
-.steps span{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
-.steps span.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,transparent)}
-.steps span.now{color:#fff;background:var(--accent);border-color:var(--accent)}
+.jobhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.jobhead h2{margin:0;font-size:22px;line-height:1.3}
+.prog{margin:14px 0 6px;padding:18px 20px;border-radius:16px;background:var(--panel2);border:1px solid var(--line)}
+.prog .top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.prog .pct{font-size:40px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;color:var(--accent)}
+.prog .what{font-size:16px;font-weight:600}
+.prog .eta{margin-left:auto;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.prog .track{height:16px;border-radius:99px;background:color-mix(in srgb,var(--text) 10%,transparent);overflow:hidden;margin-top:14px}
+.prog .fill{height:100%;min-width:16px;border-radius:99px;background:linear-gradient(90deg,var(--accent),#ff5f8a);transition:width .8s ease;position:relative;overflow:hidden}
+.prog .fill::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);animation:shim 1.5s linear infinite}
+@keyframes shim{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.steps{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:14px}
+.steps span{font-size:12.5px;text-align:center;padding:7px 4px;border-radius:10px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steps span.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,transparent);background:color-mix(in srgb,var(--ok) 8%,transparent)}
+.steps span.now{color:#fff;background:var(--accent);border-color:var(--accent);font-weight:700}
+details.sb>summary{cursor:pointer;font-weight:700;font-size:15px;margin:14px 0;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);list-style-position:inside}
 .players{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
 .player{display:flex;flex-direction:column;gap:8px}
 .player video{display:block;background:#000}
@@ -63,13 +76,13 @@ details.more{margin-top:12px}details.more summary{cursor:pointer;color:var(--mut
 .scene .noimg{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
 .scene textarea{min-height:54px}
 .empty-hero{color:var(--muted);text-align:center;padding:30px 10px}
-@media (max-width:640px){.go{width:100%;margin-left:0}.scene{grid-template-columns:1fr}.scene img,.scene .noimg{width:100%;height:160px}}
+@media (max-width:640px){.steps{grid-template-columns:repeat(4,1fr)}.prog .pct{font-size:32px}.brand{font-size:18px}.go{width:100%;margin-left:0}.scene{grid-template-columns:1fr}.scene img,.scene .noimg{width:100%;height:160px}}
 </style></head><body>
-<div class="bar">
+<header class="topbar">
   <button class="ham" id="ham" aria-label="Menu"><i></i><i></i><i></i></button>
   <div class="brand"><span class="dot">▶</span>Video Studio</div>
   <div class="right"><span class="pill" id="status">…</span></div>
-</div>
+</header>
 <div class="scrim" id="scrim"></div>
 <aside class="drawer" id="drawer">
   <div class="head"><b>Your videos</b><button class="primary" style="margin-left:auto" id="newbtn">+ New</button></div>
@@ -112,13 +125,13 @@ details.more{margin-top:12px}details.more summary{cursor:pointer;color:var(--mut
 <script>
 const SW = {auto: "linear-gradient(135deg,#7c9cff,#e1261c,#e9b872)", broadcast: "#e1261c", documentary: "#e9b872", midnight: "#7c9cff", paper: "#d2552d", neon: "#00f0ff", swiss: "#111"};
 const STEPS = [["link", /reading|collecting/], ["photos", /photos|looking/], ["script", /script|review/], ["visuals", /drawing/], ["voice", /narration/], ["music", /music|mixing/], ["render", /render/]];
-let cur = null, curState = null, INFO = null, editing = false, style = "auto", length = 60;
+let cur = null, INFO = null, editing = false, style = "auto", length = 60, viewKey = "", sbOpen = false;
 $("#mcp").textContent = mcpHelp("video-studio");
 
 const open = v => document.body.classList.toggle("open", v);
 $("#ham").onclick = () => open(!document.body.classList.contains("open"));
 $("#scrim").onclick = () => open(false);
-$("#newbtn").onclick = () => { cur = null; open(false); $("#detail").replaceChildren(); $("#source").focus(); window.scrollTo({top: 0, behavior: "smooth"}); };
+$("#newbtn").onclick = () => { cur = null; viewKey = ""; open(false); $("#detail").replaceChildren(); $("#source").focus(); window.scrollTo({top: 0, behavior: "smooth"}); };
 $("#agentsbtn").onclick = () => { $("#agents").hidden = false; open(false); $("#agents").scrollIntoView({behavior: "smooth"}); };
 $$("#len button").forEach(b => b.onclick = () => { length = +b.dataset.v; $$("#len button").forEach(x => x.classList.toggle("on", x === b)); });
 ["fl", "fr"].forEach(id => $("#" + id).onclick = e => e.currentTarget.classList.toggle("on"));
@@ -133,7 +146,7 @@ $("#go").onclick = async () => {
   const o = opts(); if (!o.formats.length) return toast("Pick 16:9, reel or both", "bad");
   if (!$("#source").value.trim()) return toast("Paste a link or describe the video", "bad");
   $("#go").disabled = true;
-  try { const j = await guard(() => api("/api/jobs", {json: {source: $("#source").value, ...o}}), "Started"); cur = j.id; editing = false; $("#source").value = ""; loadJobs(); show(); }
+  try { const j = await guard(() => api("/api/jobs", {json: {source: $("#source").value, ...o}}), "Started"); cur = j.id; editing = false; sbOpen = false; viewKey = ""; $("#source").value = ""; loadJobs(); show(); }
   finally { $("#go").disabled = false; }
 };
 
@@ -153,18 +166,39 @@ async function loadInfo() {
 
 async function loadJobs() {
   const {jobs} = await api("/api/jobs");
-  $("#jobs").replaceChildren(...jobs.map(j => el("div", {class: "item" + (j.id === cur ? " on" : ""), onclick: () => { cur = j.id; editing = false; open(false); loadJobs(); show(); }},
+  $("#jobs").replaceChildren(...jobs.map(j => el("div", {class: "item" + (j.id === cur ? " on" : ""), onclick: () => { if (cur !== j.id) { cur = j.id; editing = false; sbOpen = false; viewKey = ""; } open(false); loadJobs(); show(); }},
     j.files["landscape.jpg"] || j.files["reel.jpg"] ? el("img", {src: j.files["landscape.jpg"] || j.files["reel.jpg"], alt: ""}) : el("div", {class: "ph"}),
     el("div", {style: {minWidth: 0, flex: 1}}, el("div", {class: "t"}, j.title), el("div", {class: "m"}, badge(j.state), fmtAgo(j.created)),
       j.state === "running" ? progressBar(j.progress) : null))));
   if (!jobs.length) $("#jobs").append(el("div", {class: "empty"}, "No videos yet."));
   const j = jobs.find(x => x.id === cur);
-  if (j && !editing && (j.state !== curState || ["running", "queued"].includes(j.state))) show();
+  if (j && (["running", "queued"].includes(j.state) || keyOf(j) !== viewKey)) show();
 }
 
+function stepIndex(j) {
+  return j.state === "done" ? STEPS.length : Math.max(0, STEPS.findIndex(([, re]) => re.test(j.step || "")));
+}
 function stepper(j) {
-  const idx = j.state === "done" ? STEPS.length : Math.max(0, STEPS.findIndex(([, re]) => re.test(j.step || "")));
-  return el("div", {class: "steps"}, ...STEPS.map(([name], i) => el("span", {class: i < idx ? "done" : i === idx && j.state !== "done" ? "now" : ""}, (i < idx ? "✓ " : "") + name)));
+  return el("div", {class: "steps", id: "pp-steps"}, ...STEPS.map(([name]) => el("span", {}, name)));
+}
+function progressPanel(j) {
+  return el("div", {class: "prog", id: "pp"},
+    el("div", {class: "top"}, el("span", {class: "pct", id: "pp-pct"}, "0%"), el("span", {class: "what", id: "pp-step"}, ""),
+      el("span", {class: "eta", id: "pp-eta"}, "")),
+    el("div", {class: "track"}, el("div", {class: "fill", id: "pp-fill", style: {width: "0%"}})), stepper(j));
+}
+function updateProgress(j) {
+  if (!$("#pp")) return;
+  const pct = Math.round(Math.max(0, Math.min(1, j.progress || 0)) * 100), idx = stepIndex(j);
+  $("#pp-pct").textContent = j.state === "queued" ? "…" : pct + "%";
+  $("#pp-step").textContent = j.state === "queued" ? "Waiting for the video before it" : (j.step || "").replace(/^./, c => c.toUpperCase());
+  $("#pp-fill").style.width = Math.max(2, pct) + "%";
+  const s = Math.max(0, Math.round(Date.now() / 1000 - j.created));
+  $("#pp-eta").textContent = "started " + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") + " ago";
+  $$("#pp-steps span").forEach((e, i) => { e.className = i < idx ? "done" : i === idx ? "now" : ""; e.textContent = (i < idx ? "✓ " : "") + STEPS[i][0]; });
+}
+function keyOf(j) {
+  return [j.id, j.state, Object.keys(j.files || {}).sort().join(","), (j.photos || []).length, (j.warnings || []).length].join("|");
 }
 
 function sceneEditor(sb, images) {
@@ -192,15 +226,17 @@ function collect(sb) {
 async function show() {
   if (!cur) return;
   const j = await api("/api/jobs/" + cur);
-  curState = j.state;
+  if (j.id !== cur) return;
+  const key = keyOf(j);
+  if (key === viewKey || (editing && j.id === viewKey.split("|")[0])) { updateProgress(j); return; }   // update in place
+  viewKey = key;
   const parts = [];
-  parts.push(el("div", {class: "row", style: {marginBottom: "6px"}}, el("h2", {style: {margin: 0, fontSize: "18px"}}, j.title), badge(j.state),
+  parts.push(el("div", {class: "jobhead"}, el("h2", {}, j.title), badge(j.state),
     j.duration ? el("span", {class: "small muted"}, [fmtDur(j.duration), j.language, j.style, j.voice, j.options.quality].filter(Boolean).join(" · ")) : null,
     el("span", {style: {marginLeft: "auto"}, class: "row"},
       ["done", "error", "review"].includes(j.state) ? el("button", {onclick: async () => { await guard(() => api("/api/jobs/" + j.id + "/render", {json: {rewrite: true, review: true}}), "Writing a new script…"); show(); }}, "↻ New script") : null,
       el("button", {class: "danger", onclick: async () => { if (!confirm("Delete this video?")) return; await guard(() => api("/api/jobs/" + j.id + "/delete", {json: {}})); cur = null; $("#detail").replaceChildren(); loadJobs(); }}, "Delete"))));
-  if (j.state !== "error") parts.push(stepper(j));
-  if (j.state === "queued" || j.state === "running") parts.push(el("div", {class: "col"}, el("div", {class: "small"}, j.step), progressBar(j.progress)));
+  if (j.state === "queued" || j.state === "running") parts.push(progressPanel(j));
   if (j.error) parts.push(el("pre", {class: "log"}, j.error));
   (j.warnings || []).forEach(w => parts.push(el("div", {class: "small muted"}, "Note: " + w)));
   if (j.files["landscape.mp4"] || j.files["reel.mp4"]) {
@@ -213,19 +249,21 @@ async function show() {
   if ((j.photos || []).length) parts.push(el("h3", {}, "Photos from the link"), el("div", {class: "strip"}, ...j.photos.map(p => el("img", {src: p.url, title: p.description || p.caption || "", alt: ""}))));
   if (j.storyboard) {
     const sb = j.storyboard;
-    parts.push(el("details", {open: j.state === "review" ? true : null}, el("summary", {style: {cursor: "pointer", fontWeight: 600, margin: "12px 0"}}, j.state === "review" ? "Check the script, then render" : "Edit the script"),
+    parts.push(el("details", {class: "sb", open: j.state === "review" || sbOpen ? true : null, ontoggle: e => { sbOpen = e.currentTarget.open; }},
+      el("summary", {}, j.state === "review" ? "Check the script, then render" : "✎ Edit the script"),
       el("div", {class: "row"}, el("label", {style: {flex: 1}}, "Title", el("input", {id: "sbtitle", value: sb.title})),
         el("label", {style: {flex: 2}}, "Tagline", el("input", {id: "sbtag", value: sb.tagline || ""}))),
       el("div", {style: {marginTop: "10px"}}, ...sceneEditor(sb, j.images || {})),
       el("div", {class: "row"},
         el("button", {class: "primary", disabled: ["queued", "running"].includes(j.state), onclick: async () => {
-          editing = false; await guard(() => api("/api/jobs/" + j.id + "/storyboard", {json: {storyboard: collect(sb), render: true}}), "Rendering…"); show(); }},
+          editing = false; viewKey = ""; await guard(() => api("/api/jobs/" + j.id + "/storyboard", {json: {storyboard: collect(sb), render: true}}), "Rendering…"); show(); }},
           j.state === "review" ? "Render video" : "Save & re-render"),
         el("span", {class: "small muted"}, "Unchanged scenes keep their photos and narration."))));
   }
   const d = $("#detail");
   d.className = "card";
   d.replaceChildren(...parts);
+  updateProgress(j);
   $$("input,textarea", d).forEach(e => e.addEventListener("input", () => { editing = true; }));
 }
 
